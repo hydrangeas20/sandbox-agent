@@ -151,3 +151,105 @@ the API from fanning out unbounded Docker work.
 
 **Cost.** Not deployable as a shared service. Requests are synchronous; a long
 task holds the connection.
+
+---
+
+Decisions D12–D18 were added during the Phase 2 security review
+(`docs/SECURITY_REVIEW.md`).
+
+## D12. Pin the seccomp profile and attest isolation from inside the container
+
+**Decision.** Pass an explicit seccomp profile (Docker's default plus an errno canary)
+on every `docker create`, verify the exact JSON in `docker inspect`, and have a trusted
+PID 1 entrypoint (`sandbox/entry.py`) check seccomp, capabilities, NoNewPrivs, uid,
+network and read-only mounts before running any untrusted code.
+
+**Why.** Inspect cannot show the daemon's default profile, and a permissive profile
+still reports `Seccomp: 2` (SR-01). Inspect proves what was *requested*; attestation
+proves what the kernel *enforces* for this process. The canary errno identifies our
+profile specifically.
+
+**Cost.** One Python start-up (~10–20 ms) per run; the image must carry the
+entrypoint. Profile updates are a reviewed regeneration (`scripts/build_seccomp_profile.py`).
+
+## D13. Flatten the runner image; exact environment
+
+**Decision.** `FROM scratch` + `COPY --from=base / /`, so no base-image ENV,
+ENTRYPOINT or CMD survives. The container env must equal the configured env
+(plus a per-run nonce), checked in preflight and inspect.
+
+**Why.** An allowlist of keys that accepts any *image-provided* key with any value
+is not an allowlist (SR-02).
+
+**Cost.** One large layer instead of shared base layers (no cache sharing with
+other images).
+
+## D14. PID 1 watchdog plus owner-tagged reaping for controller death
+
+**Decision.** The entrypoint enforces `timeout + grace` itself. Containers and
+workspaces are tagged with the owning controller (`host:pid:start-ticks`), and the
+next controller removes orphans of dead owners immediately. The CLI unwinds on
+SIGTERM/SIGHUP.
+
+**Why.** The original timeout lived only in the host process (SR-04). PID 1 inside a
+PID namespace ignores signals from the workload, and making it non-dumpable blocks
+same-uid ptrace. The process start time defeats PID reuse.
+
+**Alternatives rejected.** Docker `--rm` (races with reading the exit state);
+`--stop-timeout` (only applies to `docker stop`); a host daemon (more infrastructure).
+
+**Cost.** Owner checks only work for a local daemon; a remote `DOCKER_HOST` falls
+back to deadline-based reaping.
+
+## D15. Protect tests and test configuration; final-diff allowlist
+
+**Decision.** Tests, test discovery/config, start-up hooks (`*.pth`,
+`sitecustomize.py`), policy and eval directories are not modifiable by the agent,
+enforced in `apply_patch` and again by a controller-side check of the final diff.
+Approved by the repository owner on 2026-10-26; a mode that allows explicitly
+authorised test edits is deferred.
+
+**Why.** The repository's tests decide success; editing them let the agent grade
+itself (SR-03).
+
+**Cost.** Tasks that need new or changed tests are refused. This does not stop a
+*source* patch from subverting the in-process test runner, which is why human diff
+review and held-out evaluation tests remain necessary.
+
+## D16. Budgets for real-model use, enforced before each call
+
+**Decision.** `ModelBudget`: model calls, output tokens per call, total tokens, USD
+cost per task, request timeout. Cost is checked before each call against a
+worst-case estimate (max of request size and previous billed input, plus a hidden
+prompt allowance, plus full `max_tokens`) and updated from the response's `usage`.
+Unknown models are refused rather than run without a price.
+
+**Why.** Overspend should be prevented, not merely reported. The pricing table
+cites its source and date.
+
+**Cost.** Prices must be maintained by hand. The estimate is conservative, so
+budgets stop runs somewhat early.
+
+## D17. Held-out tests in the evaluation harness
+
+**Decision.** Each `fixed` eval task also runs tests stored outside the agent's
+workspace, in a fresh sandbox, against a trusted copy of the fixture with the
+agent's changed files applied.
+
+**Why.** It gives an independent success signal that the agent cannot see or
+edit. `test_wrong_fix_that_passes_visible_tests_fails_heldout` shows the visible
+suite being fooled while the held-out check is not.
+
+**Cost.** One extra sandbox run per task.
+
+## D18. Redaction as a backstop, not the primary control
+
+**Decision.** Keep untrusted payloads (test output, file contents, provider
+exception text) out of traces entirely. Use bounded, linear-time patterns for the
+rest.
+
+**Why.** Patterns cannot catch every secret. A broadened pattern introduced a
+quadratic-time regression during the review (SR-12b), caught by a timing test.
+
+**Cost.** Traces cannot be used to debug test output; the model transcript is not
+persisted.

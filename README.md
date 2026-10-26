@@ -53,25 +53,30 @@ flowchart LR
 ```
 
 Trust boundaries: model output (TB1) is validated by the controller, not the
-adapter; workspace *content* (TB2) is only ever read/written as bytes through
-`Workspace.resolve()`; untrusted *execution* (TB3) happens only in the container.
+adapter; workspace *content* (TB2) is only ever read and written as bytes through
+descriptor-relative, `O_NOFOLLOW` file operations; untrusted *execution* (TB3)
+happens only in the container, after a trusted PID 1 entrypoint (`sandbox/entry.py`)
+has attested the isolation controls from inside it.
 
 ## Security model at a glance
 
 | Threat | Mitigation | Proven by |
 |---|---|---|
-| Prompt injection in repo files or test output | No shell tool; allowlisted commands only; workspace-confined file tools; status computed from tests, not model claims | `test_injection_following_provider_is_contained` |
+| Prompt injection in repo files or test output | No shell tool; allowlisted commands only; workspace-confined file tools; status computed from tests, not model claims | `test_injection_following_provider_is_contained`, eval `invoice-injection` |
+| Grading itself (editing tests) | `tests/`, test config, start-up hooks, policy and eval paths protected in `apply_patch` **and** by a final-diff allowlist; held-out tests in evals | `test_sr03_*`, `test_evals.py` |
 | Arbitrary commands | Command *names* map to fixed argv; strict selector regex | `test_forbidden_commands_via_pipeline` |
-| Path traversal / symlink escape | Lexical checks + per-component `lstat`; every symlink refused; atomic `O_NOFOLLOW`-safe writes | `test_workspace.py`, adversarial pipeline tests |
-| Network exfiltration | `--network none`, verified; only `lo` inside | `test_network_disabled`, `test_hostile_test_code_is_contained` |
-| Privilege escalation | uid 10001, `--cap-drop ALL`, `no-new-privileges`, default seccomp, RO rootfs | `test_privilege_restrictions` |
-| Resource exhaustion | memory = swap limit, CPUs, PIDs, `nofile`, `RLIMIT_FSIZE`, tmpfs size, timeout + `docker kill`, bounded output | `test_resource_*` |
-| Isolation silently not applied | `docker inspect` of the created container compared to config; mismatch → abort before start | `test_verify_rejects_*`, `test_isolation_mismatch_fails_closed…` |
-| Secret leakage | Container env is an allowlist; emit-time trace redaction | `test_env_is_minimal`, `test_trace_is_complete_and_secret_free` |
-| Runaway agent | Iteration, tool-call, wall-clock, denial and invalid-output budgets; cancellation | `test_agent.py` |
+| Path traversal / symlink / TOCTOU | Lexical checks; descriptor-relative `O_NOFOLLOW` walks; symlinks, special files and hard links refused | `test_workspace.py`, `test_sr06..09_*` |
+| Network exfiltration | `--network none`, verified in inspect and attested inside (only `lo`) | `test_network_disabled`, `test_hostile_test_code_is_contained` |
+| Privilege escalation | uid 10001, `--cap-drop ALL`, `no-new-privileges`, **pinned seccomp profile** (Docker default + canary), RO rootfs | `test_privilege_restrictions`, `test_sr01_*` |
+| Isolation silently weakened | Inspect compared to config (exact seccomp JSON, security-option allowlist, exact env); **runtime attestation** by PID 1 before untrusted code runs | `test_sr01_runtime_attestation_catches_weak_seccomp` |
+| Resource exhaustion | memory = swap, CPUs, PIDs, `nofile`, `RLIMIT_FSIZE`, tmpfs, timeout, **total output budget**; OOM attributed from cgroup counters | `test_resource_*`, `test_sr05_*`, `test_sr13_*` |
+| Controller crash leaves containers running | PID 1 watchdog deadline; owner-tagged reaping on next start; SIGTERM unwinding | `test_sr04_*` |
+| Secret leakage | Exact container env; test output and exception text never traced; redaction backstop (linear-time) | `test_env_is_minimal`, `test_sr12_*` |
+| Runaway agent or model spend | Iteration, tool-call, wall-clock, denial and invalid-output budgets; model-call, token and **cost** budgets checked before each call | `test_agent.py`, `test_real_model_path.py` |
 
-Full analysis: [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md) (17 attack
-paths). Latest results: [`docs/ADVERSARIAL_REPORT.md`](docs/ADVERSARIAL_REPORT.md).
+Full analysis: [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md) (25 attack
+paths). Independent review with evidence: [`docs/SECURITY_REVIEW.md`](docs/SECURITY_REVIEW.md).
+Latest results: [`docs/ADVERSARIAL_REPORT.md`](docs/ADVERSARIAL_REPORT.md).
 
 ## Quick start
 
@@ -88,6 +93,8 @@ make demo                    # one-command offline demo (no API key, no network)
 
 No registry access? `make image-offline-base` builds an equivalent shell-less
 base from the host's `/usr/bin/python3.12` (see [D10](docs/DECISIONS.md)).
+After pulling changes to `sandbox/`, rebuild the image: preflight refuses an image
+whose environment differs from the configured one.
 
 ### Expected demo output
 
@@ -98,22 +105,22 @@ Sandbox Coding Agent — offline demo (scripted provider, Docker sandbox)
 
 task: paginate() returns the wrong items: page 1 of 25 items with per_page=10 starts at item 11. Find and fix the bug, then make sure the test suite passes.
 
-task_id        a6e231136e124d22a59fb08bcab38c04
+task_id        dc684f473244457183aa81092d08f416
 fixture        paginator  (provider: scripted)
 status         SUCCEEDED  — full test suite passed after last patch
 budget used    iterations=6 tool_calls=5 policy_denials=0 invalid_outputs=0
 final tests    passed=True tests_run=6 failures=0
 files changed  paginator/core.py
 fixture intact True  sha256=e29b32b29d1852e9…
-duration       1770 ms
-trace          runs/a6e231136e124d22a59fb08bcab38c04.trace.jsonl  (21 events)
+duration       1514 ms
+trace          runs/dc684f473244457183aa81092d08f416.trace.jsonl  (21 events)
 
 --- tool calls ---
-  [ok ] run_tests     742 ms  {'command': 'unittest', 'selector': None, 'passed': False, 'status': 'completed', 'exit_code': 1, 'tests_run': 6, 'failures': 'failures=2'}
-  [ok ] search          2 ms  {'matches': 1, 'truncated': False}
+  [ok ] run_tests     695 ms  {'command': 'unittest', 'selector': None, 'passed': False, 'status': 'completed', 'exit_code': 1, 'tests_run': 6, 'failures': 'failures=2'}
+  [ok ] search          0 ms  {'matches': 1, 'truncated': False}
   [ok ] read_file       0 ms  {'path': 'paginator/core.py', 'total_lines': 34}
-  [ok ] apply_patch     1 ms  {'files_changed': ['paginator/core.py'], 'edits_applied': 1}
-  [ok ] run_tests     863 ms  {'command': 'unittest', 'selector': None, 'passed': True, 'status': 'completed', 'exit_code': 0, 'tests_run': 6, 'failures': None}
+  [ok ] apply_patch     0 ms  {'files_changed': ['paginator/core.py'], 'edits_applied': 1}
+  [ok ] run_tests     696 ms  {'command': 'unittest', 'selector': None, 'passed': True, 'status': 'completed', 'exit_code': 0, 'tests_run': 6, 'failures': None}
 
 --- diff ---
 --- a/paginator/core.py
@@ -155,18 +162,35 @@ through the hostile test's own output.
 ## Measured results
 
 Build host: 2 vCPU, 7 GiB RAM, Linux 6.18, Docker 29.9.2 (cgroup v1),
-bootstrapped Python 3.12 base. Five consecutive `make demo` runs:
+bootstrapped Python 3.12 base. Five consecutive `make demo` runs after the security
+hardening (before it, in brackets):
 
 | Metric | Median | Min | Max |
 |---|---|---|---|
-| End-to-end task (incl. preflight, 2 sandbox runs) | 1,770 ms | 1,572 ms | 1,807 ms |
-| One sandboxed `run_tests` (create → verify → run → rm) | 801 ms | 713 ms | 876 ms |
+| End-to-end task (incl. preflight, 2 sandbox runs) | 1,495 ms (1,770) | 1,409 ms | 1,547 ms |
+| One sandboxed `run_tests` (create → verify → attest → run → rm) | 692 ms (801) | 637 ms | 706 ms |
 | Status | 5/5 `succeeded`, fixture unchanged 5/5 | | |
 
-Test suite: **249 passed, 0 failed, 0 skipped** (`make test`; also green on
-GitHub Actions with the `python:3.12-slim` image), of which 177 in
-the security suites (`make adversarial-report`). Quality gates: Ruff (incl.
+Output flood (`while True: write 1 MiB`): before the fix, 30 s, 13.9 GiB streamed and
+about 30 CPU-seconds on the host; after it, stopped in 0.6 s after about 40 MiB.
+
+Test suite: **361 passed, 0 failed, 0 skipped** (`make test`), of which
+285 are in the security suites (`make adversarial-report`); green on GitHub
+Actions with the `python:3.12-slim` image (cgroup v2). Quality gates: Ruff (incl.
 bandit rules), `ruff format`, `mypy --strict` — all clean.
+
+### Evaluation suite
+
+`evals/tasks.json` has 8 tasks: 4 bug fixes, a prompt injection in the README and
+code comments (`invoice-injection`), a malicious test module (`tempconv-malicious`),
+a false bug report (`stack-false-report`) and a summarise-only task on the hostile
+fixture. A `fixed` task passes only if the controller reports `succeeded` **and**
+held-out tests (stored outside the agent's workspace) pass on the agent's change.
+
+| Provider | Result | Notes |
+|---|---|---|
+| Scripted reference plans | 8/8 ([results](evals/results/scripted-latest.md)) | Validates fixtures, held-out tests and harness. **Not** a measure of model capability. |
+| Real model (Anthropic) | **Not yet run** | Waiting for the operator's API key; see below. |
 
 ## Usage
 
@@ -184,6 +208,7 @@ curl -s localhost:8000/tasks -H 'content-type: application/json' \
 | `make test-unit` | Tests that need no Docker |
 | `make test-docker` | Sandbox, end-to-end and adversarial tests |
 | `make test-security` | Security suites, verbose |
+| `uv run sandbox-agent eval` | Evaluation suite (scripted by default) |
 | `make adversarial-report` | Regenerate `docs/ADVERSARIAL_REPORT.md` |
 | `make ci` | Everything CI runs locally |
 
@@ -191,16 +216,35 @@ Docker-marked tests skip locally when the daemon or image is missing (shown in
 pytest's summary); CI sets `SANDBOX_AGENT_REQUIRE_DOCKER=1`, turning a missing
 daemon into an error.
 
-### Real LLM provider (unverified)
+### Real model (opt-in)
+
+The real provider is used only when all three are true: `--provider anthropic`,
+`SANDBOX_AGENT_OFFLINE=0`, and `ANTHROPIC_API_KEY` set in the environment of the
+process. Keep the key out of the repository and shell history, e.g. load it from a
+file you control:
 
 ```bash
-export ANTHROPIC_API_KEY=…  SANDBOX_AGENT_OFFLINE=0
-uv run sandbox-agent run --fixture paginator --provider anthropic --task "…"
+export ANTHROPIC_API_KEY="$(cat ~/.config/sandbox-agent/anthropic.key)"  # never commit this
+export SANDBOX_AGENT_OFFLINE=0
+
+# One task, default model claude-sonnet-5-5, capped at $0.50 and 12 model calls
+uv run sandbox-agent run --provider anthropic --fixture paginator \
+    --task "paginate() returns the wrong items; fix it and make the tests pass" \
+    --max-cost-usd 0.50 --max-model-calls 12
+
+# The evaluation suite: per-task cap $0.50, hard stop for the whole run at $3
+uv run sandbox-agent eval --provider anthropic --max-cost-usd 0.50 --max-total-cost-usd 3
 ```
 
-The adapter forces exactly one tool call per turn and labels tool results as
-untrusted data. Only request construction and response parsing are tested
-(stub transport). **It has not been run against the live API.**
+Budgets are checked **before** every call against a worst-case estimate and
+updated from the API's reported `usage`. Prices come from the
+[official pricing page](https://platform.claude.com/docs/en/about-claude/pricing)
+(Sonnet 5.5: $2 / $10 per MTok input/output), and unknown models are refused.
+Each call is traced as a `model_call` event (tokens, cache tokens, estimated cost,
+latency). Live results are written to `evals/results/anthropic-<model>-latest.*`,
+separate from scripted results. The live path has been tested with stub
+transports only (`tests/test_real_model_path.py`), and has **not** yet been run
+against the live API.
 
 ## Project layout
 
@@ -213,35 +257,45 @@ src/sandbox_agent/
   patch.py       exact-match atomic edits
   tools.py       tool contracts and dispatch
   agent.py       bounded controller and status semantics
-  providers/     scripted (incl. injection-following) and Anthropic adapters
+  providers/     scripted (incl. injection-following) and budgeted Anthropic adapter
+  ownership.py   controller identity for orphan recovery
+  evals.py       evaluation harness with held-out checks
+  seccomp/       pinned seccomp profile (Docker default + canary), provenance, license
   trace.py       JSONL traces with emit-time redaction
   service.py     end-to-end orchestration, diff, integrity check
   cli.py, api.py
-sandbox/Dockerfile          runner image (no RUN steps)
-fixtures/repos/paginator    genuine off-by-one bug + tests
-fixtures/repos/hostile      prompt injections, escaping symlinks, hostile tests
-docs/                       SPEC, THREAT_MODEL, DECISIONS, BUILD_LOG, ADVERSARIAL_REPORT
+sandbox/Dockerfile          runner image (flattened onto scratch, no RUN steps)
+sandbox/entry.py            trusted PID 1: attestation, env scrub, watchdog, exit report
+fixtures/repos/             paginator, slugify, roman, ledger, invoice, tempconv, stack, hostile
+evals/                      tasks.json, held-out tests, results
+docs/                       SPEC, THREAT_MODEL, DECISIONS, SECURITY_REVIEW, BUILD_LOG, ADVERSARIAL_REPORT
 ```
 
 ## Limitations
 
 - **Shared kernel.** Containers do not protect against kernel or runc
-  vulnerabilities. No gVisor/Kata/microVM, no user-namespace remapping.
-- **Daemon access is root-equivalent.** The service process must be trusted;
-  it is not hardened against a malicious operator.
-- **Model behaviour is not verified.** The demo uses a scripted plan; the
-  Anthropic adapter has not been run against the live API. Containment is
-  shown for a simulated obedient model, not measured for real models.
-- **Tests are untrusted.** "Succeeded" means the repository's own suite passed;
-  a rigged suite can pass anything.
-- **Narrow toolset.** One allowlisted test runner (stdlib `unittest`); edits
-  only modify existing files; no dependency installation.
-- **Local only.** Synchronous, single-flight API without authentication.
-- **Two environments measured.** Timings above come from the build host
-  (bootstrapped base, cgroup v1). GitHub Actions (`python:3.12-slim`, cgroup v2)
-  passes the full suite and demo; there, an OOM kill can surface as status
-  `killed` (exit 137 without Docker's `OOMKilled` flag).
-- **AppArmor/SELinux are not verified** by the preflight; only seccomp is.
+  vulnerabilities. No gVisor/Kata/microVM, no user-namespace remapping. Not for
+  hostile multi-tenant workloads.
+- **Repository tests are untrusted.** Tests and their configuration are protected
+  from the agent, but a *source* change can still subvert the in-process test
+  runner. "Succeeded" means the repository's own suite passed; review the diff
+  before using it. Held-out tests give independent evidence only in the eval suite.
+- **Daemon access is root-equivalent.** The controller must be trusted; it is not
+  hardened against a malicious operator.
+- **Real-model behaviour is unmeasured.** The live API path is stub-tested; the
+  evaluation has not been run against a real model yet. Containment does not
+  depend on the model, but success and denial rates do.
+- **Cost bounds are estimates.** Budgets use a conservative pre-call estimate and
+  published prices that must be kept up to date by hand.
+- **Narrow toolset.** One allowlisted test runner (stdlib `unittest`); edits only
+  modify existing, non-protected files; no dependency installation.
+- **Bounded, not instant, recovery.** After a controller SIGKILL, a workload runs
+  until `timeout + 5 s`; the stopped container and workspace remain until the next
+  controller start.
+- **Local only.** Synchronous, single-flight API on loopback without authentication.
+- **AppArmor/SELinux** are only checked for not being disabled, not positively verified.
+- **Measured on two environments only:** the build host (bootstrapped base, cgroup v1)
+  and GitHub Actions (`python:3.12-slim`, cgroup v2).
 
 ## Documentation
 
@@ -250,6 +304,8 @@ docs/                       SPEC, THREAT_MODEL, DECISIONS, BUILD_LOG, ADVERSARIA
 - [`docs/DECISIONS.md`](docs/DECISIONS.md) — engineering trade-offs
 - [`docs/BUILD_LOG.md`](docs/BUILD_LOG.md) — milestone-by-milestone progress
 - [`docs/ADVERSARIAL_REPORT.md`](docs/ADVERSARIAL_REPORT.md) — generated security results
+- [`docs/SECURITY_REVIEW.md`](docs/SECURITY_REVIEW.md) — Phase 2 findings, fixes, residual risk
+- [`docs/security-review/REGRESSION_EVIDENCE.md`](docs/security-review/REGRESSION_EVIDENCE.md) — each regression test before/after the fixes
 
 ## License
 

@@ -80,6 +80,19 @@ truth for the adversarial test suite (`tests/test_adversarial.py`).
 | T16 | Fixture selection used to read arbitrary host directories. | I | API/CLI accept a fixture *name* matched by regex and resolved as a direct, non-symlink child of the registry. | `test_fixture_name_validation` |
 | T17 | Trace tampering or gaps. | R | Append-only JSONL with monotonic `seq`, correlation ID on every event; every tool call emits start/end events even on error. | `test_trace.py` |
 
+### Added in the Phase 2 security review
+
+| ID | Attack path | STRIDE | Mitigation | Test |
+|---|---|---|---|---|
+| T18 | Daemon default or injected option weakens seccomp without the literal `unconfined` (permissive custom profile). | E | Pinned profile verified in inspect; security-option allowlist; in-container attestation with canary errno. | `test_sr01_*` |
+| T19 | Image-provided env (`LD_PRELOAD`, `PYTHONPATH`, baked credentials). | E, I | Flattened image; exact env in preflight and inspect; PID 1 scrubs runtime-injected vars. | `test_sr02_*` |
+| T20 | Agent (or injected instructions) edits the tests or test configuration that decide success. | T, R | Protected paths in `apply_patch`; controller final-diff allowlist; held-out eval tests. | `test_sr03_*`, `test_evals.py` |
+| T21 | Controller dies (SIGKILL, crash) while a container runs. | D | PID 1 watchdog deadline; owner-tagged reaping of containers and workspaces; SIGTERM unwinding. | `test_sr04_*` |
+| T22 | Output flood burns host CPU through dockerd and the CLI. | D | Total output budget with asynchronous kill. | `test_sr05_*` |
+| T23 | Hostile strings make trace redaction quadratic (ReDoS). | D | Bounded, boundary-anchored patterns. | `test_sr12_redaction_is_not_quadratic` |
+| T24 | DNS rebinding to the loopback API. | S, E | Host-header allowlist. | `test_sr11_*` |
+| T25 | Workload forges entrypoint markers to spoof attestation or OOM attribution. | S | Per-run nonce held only by non-dumpable PID 1; first/last-line positions. | `test_forged_*` |
+
 ## 6. Assumptions
 
 - The Docker daemon, container runtime (runc) and kernel are trusted and
@@ -91,9 +104,9 @@ truth for the adversarial test suite (`tests/test_adversarial.py`).
   contains no secrets.
 - The host user running the service can talk to Docker. **Access to the Docker
   socket is root-equivalent**; the service process is itself trusted code.
-- Default Docker seccomp and AppArmor/SELinux profiles are in effect where the
-  host supports them. The MVP checks that seccomp is reported by the daemon and
-  that the container is not `seccomp=unconfined`; it does not verify AppArmor.
+- The pinned seccomp profile is applied and attested for every run (T18).
+  AppArmor/SELinux are only checked for not being explicitly disabled
+  (`apparmor=unconfined`, `label=disable`); their profiles are not positively verified.
 
 ## 7. Residual risks and non-goals
 
@@ -104,9 +117,10 @@ truth for the adversarial test suite (`tests/test_adversarial.py`).
 - No user-namespace remapping (`userns-remap`) is configured; UID 10001 in the
   container is UID 10001 on the host.
 - CPU-time side channels and cache timing are out of scope.
-- The model can still produce a *wrong* patch or deceptive summary text; the
-  status is derived from test results, not model claims, but the tests are
-  themselves part of the untrusted repository and can be gamed by it.
+- The model can still produce a *wrong* patch or deceptive summary text. The
+  status is derived from test results, not model claims. Tests and their
+  configuration are protected (T20), but a *source* patch can still subvert the
+  in-process test runner, so "succeeded" requires human diff review before use.
 - The scripted provider exercises the controller deterministically; it does
   not demonstrate model reasoning. Real-provider behaviour is unverified in CI.
 - Denial of service against the Docker daemon itself (e.g. many concurrent API

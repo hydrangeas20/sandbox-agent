@@ -89,7 +89,16 @@ The status is computed by the controller; the model cannot declare success.
 | `policy_aborted` | Policy denials reached `max_policy_denials`. |
 | `cancelled` | Cancellation requested by the caller. |
 | `provider_error` | Provider failed or returned invalid output more than `max_invalid_outputs` times. |
-| `sandbox_error` | Isolation could not be applied or verified (fail closed). |
+| `sandbox_error` | Isolation could not be applied, verified or attested (fail closed). |
+
+`policy_aborted` is also set when the final diff violates the allowlist (only
+modifications of existing, non-protected regular files are allowed), and
+`budget_exhausted` when a model budget (calls, tokens, cost) would be exceeded.
+
+Sandbox run statuses (in `run_tests` results): `completed`, `timeout` (host
+timeout or in-container watchdog), `oom_killed` (Docker flag, or SIGKILL plus
+a cgroup `oom_kill` increase), `killed` (SIGKILL without OOM evidence), and
+`output_limit` (total output budget exceeded).
 
 ## 6. Default limits
 
@@ -101,7 +110,10 @@ The status is computed by the controller; the model cannot declare success.
 | Open files (`nofile`) | 256 |
 | `/tmp` tmpfs | 64 MiB, `noexec,nosuid,nodev` |
 | Command timeout | 30 s |
-| Captured output per stream | 64 KiB (excess discarded, flagged `truncated`) |
+| Captured output per stream | 64 KiB head + 8 KiB tail (excess discarded, flagged `truncated`) |
+| Total output (both streams) | 16 MiB, then the container is killed (`output_limit`) |
+| In-container watchdog | `timeout + 5 s`, enforced by PID 1 without the host |
+| Model budget (real provider) | 12 calls, 1,024 output tokens/call, 150k tokens, $0.50 per task, 60 s per request |
 | Max file read | 256 KiB |
 | Fixture copy | ≤ 2,000 entries, ≤ 10 MiB |
 | Patch | ≤ 20 edits, ≤ 64 KiB per replacement, resulting file ≤ 256 KiB |
@@ -152,7 +164,10 @@ Traces are JSON Lines (`runs/<task_id>.trace.jsonl` from the CLI; inline as
 | `policy_denial` | `iteration`, `tool`, `rule`, `detail` |
 | `agent_end` | status, reason, counters, `final_tests_passed`, `summary` |
 | `sandbox_error` / `provider_error` / `workspace_error` | `error` |
-| `task_end` | `status`, `reason`, `files_changed`, `fixture_unchanged`, `duration_ms`, `resources` (sandbox runs, sandbox ms, timeouts, OOM kills, output bytes, policy denials) |
+| `model_call` | real provider only: `input_tokens`, `output_tokens`, cache tokens, `cost_usd`, `latency_ms`, `stop_reason` |
+| `diff_policy_violation` | `violations` |
+| `internal_error` | `error_type` (type name only) |
+| `task_end` | `status`, `reason`, `files_changed`, `fixture_unchanged`, `duration_ms`, `resources` (sandbox runs, sandbox ms, timeouts, OOM kills, SIGKILLs, output bytes, policy denials), `model_usage` |
 
 `provider_action` events contain the full tool arguments, so the action
 sequence can be replayed from the trace alone (`test_trace_is_sufficient_to_replay`).

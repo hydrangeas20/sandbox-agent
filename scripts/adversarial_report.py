@@ -26,6 +26,10 @@ SUITES = [
     "tests/test_patch.py",
     "tests/test_tools.py",
     "tests/test_trace.py",
+    "tests/test_security_review.py",
+    "tests/test_security_review_docker.py",
+    "tests/test_reliability.py",
+    "tests/test_real_model_path.py",
 ]
 THREATS = {
     "test_injection_following_provider_is_contained": "T1 T2 T3 T4",
@@ -69,6 +73,7 @@ def main() -> int:
     rows: list[tuple[str, str, str]] = []
     counts = {"PASS": 0, "FAIL": 0, "SKIPPED": 0}
     adversarial: list[tuple[str, str, str]] = []
+    review: list[tuple[str, str, str]] = []
     for case in tree.iter("testcase"):
         name = case.get("name", "")
         module = case.get("classname", "").rsplit(".", 1)[-1]
@@ -83,6 +88,13 @@ def main() -> int:
         base = name.split("[", 1)[0]
         if module == "test_adversarial":
             adversarial.append((THREATS.get(base, "-"), name, status))
+        elif module.startswith("test_security_review"):
+            finding = (
+                base.split("_")[1].upper().replace("SR", "SR-")
+                if base.startswith("test_sr")
+                else "-"
+            )
+            review.append((finding, name, status))
 
     by_module: dict[str, dict[str, int]] = {}
     for module, _, status in rows:
@@ -102,6 +114,15 @@ def main() -> int:
         "| Threat | Test | Result |",
         "|---|---|---|",
         *[f"| {t} | `{n}` | {s} |" for t, n, s in adversarial],
+        "",
+        "## Security-review regressions (`tests/test_security_review*.py`)",
+        "",
+        "Finding IDs refer to `docs/SECURITY_REVIEW.md`. Before/after evidence for each is in",
+        "`docs/security-review/REGRESSION_EVIDENCE.md`.",
+        "",
+        "| Finding | Test | Result |",
+        "|---|---|---|",
+        *[f"| {t} | `{n}` | {s} |" for t, n, s in sorted(review)],
         "",
         "## Security-relevant suites",
         "",

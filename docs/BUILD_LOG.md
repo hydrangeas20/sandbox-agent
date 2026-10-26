@@ -82,3 +82,22 @@ Concise per-milestone progress entries. Newest last.
   3. `test_hostile_test_code_is_contained`: the probe flagged `GPG_KEY`, a public CPython signing-key fingerprint set by the official image, because it matched any variable containing "KEY". Probe now checks known credential variable names and secret-shaped values. Planted host secrets are still asserted absent by `test_env_is_minimal`. Image-provided env vars remain allowed by the inspect verifier (see review items).
 - CI failure annotations are now emitted from JUnit XML, because job logs are not downloadable from this build environment.
 - Fourth CI run: `quality` and `sandbox` (slim image: preflight, all Docker/E2E/adversarial tests, offline demo) both **green**.
+
+## Phase 2 — Security review and one-day MVP sprint (2026-10-26)
+- **Method:** every hypothesis was probed against the running code first, then regression tests were written and run on `242b36c` (2 passed / 72 failed; the 2 are false-positive checks), then fixed (79 / 0). Evidence: `docs/security-review/`.
+- **Confirmed and fixed:**
+  - SR-01 seccomp fail-open: a permissive daemon default passed preflight and verify. Now a pinned profile, an exact inspect check, and in-container attestation.
+  - SR-02 image env passthrough: now a flattened image and exact env.
+  - SR-03 test tampering gave false success: now protected paths plus a final-diff gate (owner-approved).
+  - SR-04 orphaned containers after controller death: now a PID 1 watchdog, owner-tagged reaping and SIGTERM unwinding. Recovery is demonstrated by killing the CLI mid-run.
+  - SR-05 output flood (13.9 GiB / ~30 CPU-s): now a total output budget.
+  - Smaller: SR-06 FIFO hang, SR-10 unhandled exceptions, SR-11 DNS rebinding, SR-12 redaction gaps, SR-13 OOM attribution (strict test restored using cgroup evidence), SR-14 lost test summaries.
+- **Defence in depth:** descriptor-relative workspace I/O and copy (SR-07..09).
+- **Self-introduced and caught:**
+  - SR-12b quadratic redaction regex: found because one test took 269 s; fixed before commit.
+  - SR-15 exit marker lost after unterminated output: found by the P3 reliability tests.
+  - The first output-budget implementation deadlocked because it killed from the reader thread: fixed by killing asynchronously.
+- **P1 real-model path:** `ModelBudget` covers calls, tokens per call and in total, USD cost and request timeout. It is checked before each call, and usage plus estimated cost are traced per call. Pricing comes from the official page (2026-10-26) and unknown models are refused. Error messages carry status codes and error types only. The path is stub-tested only; no API key was available in this session.
+- **P2 evaluation:** 8 tasks over 6 new fixtures plus paginator and hostile, with held-out tests outside the workspace and per-task and total cost caps. The scripted reference run scored 8/8, which validates the harness only. Negative harness tests show a wrong fix that fools the visible tests is caught by the held-out tests. The live-model run is pending the operator's key.
+- **P3 reliability:** forged markers, binary and unterminated output, interrupt mid-run, API single-flight.
+- **CI:** green on `1fbdf58` and `c080e04` (both jobs, `python:3.12-slim`, cgroup v2).
