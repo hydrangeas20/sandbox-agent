@@ -118,7 +118,7 @@ try:
     os.symlink("/etc/passwd", "/workspace/escape"); R["symlink"] = "created"
 except OSError as e:
     R["symlink"] = e.errno
-shutil.copy("/usr/bin/python3", "/tmp/py"); os.chmod("/tmp/py", 0o755)
+import sys; shutil.copy(sys.executable, "/tmp/py"); os.chmod("/tmp/py", 0o755)
 try:
     import subprocess; subprocess.run(["/tmp/py", "-c", "1"], check=True); R["tmp_exec"] = "ran"
 except OSError as e:
@@ -146,9 +146,16 @@ def test_env_is_minimal(ws: Path, monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_memory_limit_oom_killed(ws: Path) -> None:
-    out = run_py(ws, "x = bytearray(600 * 1024 * 1024)\nx[::4096] = b'1' * len(x[::4096])")
-    assert out.status == "oom_killed", out
+    out = run_py(
+        ws,
+        "x = bytearray(600 * 1024 * 1024)\nx[::4096] = b'1' * len(x[::4096])\nprint('ALLOCATED')",
+    )
+    # The kernel must SIGKILL the process before the allocation completes. Docker sets
+    # OOMKilled reliably on cgroup v1; on some cgroup v2 hosts it reports only exit 137,
+    # which the runner labels "killed" (it never sends SIGKILL itself outside a timeout).
+    assert out.status in ("oom_killed", "killed"), out
     assert out.exit_code == 137
+    assert "ALLOCATED" not in out.stdout
 
 
 def test_pids_limit_blocks_fork_bomb(ws: Path) -> None:

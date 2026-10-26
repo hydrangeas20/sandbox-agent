@@ -182,6 +182,7 @@ def _resource_summary(events: list[dict[str, Any]]) -> dict[str, Any]:
         "sandbox_ms": sum(int(e.get("duration_ms") or 0) for e in runs),
         "timeouts": sum(1 for e in runs if e["resources"].get("timed_out")),
         "oom_kills": sum(1 for e in runs if e["resources"].get("oom_killed")),
+        "sigkills": sum(1 for e in runs if e["resources"].get("killed")),
         "output_bytes": sum(
             int(e["resources"].get("stdout_bytes", 0)) + int(e["resources"].get("stderr_bytes", 0))
             for e in runs

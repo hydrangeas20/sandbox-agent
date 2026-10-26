@@ -234,6 +234,7 @@ class ToolExecutor:
                 "container": outcome.container,
                 "timed_out": outcome.status == "timeout",
                 "oom_killed": outcome.status == "oom_killed",
+                "killed": outcome.status == "killed",
                 "stdout_bytes": outcome.stdout_bytes_total,
                 "stderr_bytes": outcome.stderr_bytes_total,
             },

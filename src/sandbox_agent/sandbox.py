@@ -81,7 +81,9 @@ class RunOutcome(BaseModel):
 
     model_config = ConfigDict(frozen=True)
 
-    status: Literal["completed", "timeout", "oom_killed"]
+    #: ``killed``: SIGKILL (exit 137) that the runner did not send. On cgroup v2 hosts Docker
+    #: does not always set ``OOMKilled`` when the kernel OOM-kills the container's process.
+    status: Literal["completed", "timeout", "oom_killed", "killed"]
     exit_code: int | None
     stdout: str
     stderr: str
@@ -366,11 +368,13 @@ class DockerSandbox:
         state = self._inspect(container_id).get("State") or {}
         oom = bool(state.get("OOMKilled"))
         exit_code = state.get("ExitCode")
-        status: Literal["completed", "timeout", "oom_killed"]
+        status: Literal["completed", "timeout", "oom_killed", "killed"]
         if timed_out:
             status = "timeout"
         elif oom:
             status = "oom_killed"
+        elif exit_code == 137:
+            status = "killed"
         else:
             status = "completed"
         return RunOutcome(
