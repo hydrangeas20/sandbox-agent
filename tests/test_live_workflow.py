@@ -29,10 +29,16 @@ def wf() -> dict[str, Any]:
 
 @pytest.fixture(scope="module")
 def job(wf: dict[str, Any]) -> dict[str, Any]:
-    jobs = wf["jobs"]
-    assert list(jobs) == ["smoke"]
-    smoke: dict[str, Any] = jobs["smoke"]
+    """The paid job (the only one with environment and secret access)."""
+    assert list(wf["jobs"]) == ["verify", "smoke"]
+    smoke: dict[str, Any] = wf["jobs"]["smoke"]
     return smoke
+
+
+@pytest.fixture(scope="module")
+def verify(wf: dict[str, Any]) -> dict[str, Any]:
+    v: dict[str, Any] = wf["jobs"]["verify"]
+    return v
 
 
 def steps_by_name(job: dict[str, Any]) -> dict[str, dict[str, Any]]:
@@ -47,32 +53,58 @@ def test_manual_dispatch_only(wf: dict[str, Any]) -> None:
         assert forbidden not in text.split("jobs:")[0], forbidden
 
 
-def test_least_privilege_and_serialised(wf: dict[str, Any], job: dict[str, Any]) -> None:
+def test_least_privilege_and_serialised(wf: dict[str, Any]) -> None:
     assert wf["permissions"] == {"contents": "read"}
-    assert "permissions" not in job
+    for j in wf["jobs"].values():
+        assert "permissions" not in j
+        assert j["timeout-minutes"] <= 30
     assert wf["concurrency"] == {"group": "sandbox-agent-eval", "cancel-in-progress": False}
-    assert job["timeout-minutes"] <= 30
 
 
-def test_environment_and_main_pinning(job: dict[str, Any]) -> None:
-    assert job["environment"] == "sandbox-agent-eval"
-    condition = job["if"]
-    for clause in (
-        "github.event_name == 'workflow_dispatch'",
-        "github.repository == 'hydrangeas20/sandbox-agent'",
-        "github.ref == 'refs/heads/main'",
-        "inputs.expected_sha == github.sha",
-        "inputs.confirm == 'RUN-PAID-HAIKU-SMOKE'",
+GUARDS = (
+    "github.event_name == 'workflow_dispatch'",
+    "github.repository == 'hydrangeas20/sandbox-agent'",
+    "github.ref == 'refs/heads/main'",
+    "inputs.expected_sha == github.sha",
+    "inputs.confirm == 'RUN-PAID-HAIKU-SMOKE'",
+)
+
+
+def test_both_jobs_guarded_and_pinned_to_main(wf: dict[str, Any]) -> None:
+    for name, j in wf["jobs"].items():
+        for clause in GUARDS:
+            assert clause in j["if"], (name, clause)
+        guard = j["steps"][0]
+        assert guard["name"].startswith("Guard")
+        assert '[[ "$EXPECTED_SHA" == "$ACTUAL_SHA" ]]' in guard["run"]
+        checkout = next(
+            s for s in j["steps"] if str(s.get("uses", "")).startswith("actions/checkout@")
+        )
+        assert checkout["with"] == {"ref": "${{ github.sha }}", "persist-credentials": False}
+
+
+def test_verify_job_has_no_secret_access(verify: dict[str, Any]) -> None:
+    assert "environment" not in verify
+    assert "secrets." not in json.dumps(verify)
+    names = [s.get("name", s.get("uses", "")) for s in verify["steps"]]
+    for required in (
+        "Install",
+        "Offline checks",
+        "Build sandbox image",
+        "Sandbox isolation checks",
     ):
-        assert clause in condition
-    checkout = next(
-        s for s in job["steps"] if str(s.get("uses", "")).startswith("actions/checkout@")
-    )
-    assert checkout["with"] == {"ref": "${{ github.sha }}", "persist-credentials": False}
+        assert required in names
 
 
-def test_actions_pinned_to_full_commit_shas(job: dict[str, Any]) -> None:
-    uses = [s["uses"] for s in job["steps"] if "uses" in s]
+def test_paid_job_runs_on_a_fresh_runner_after_verify(job: dict[str, Any]) -> None:
+    assert job["needs"] == "verify"
+    assert job["environment"] == "sandbox-agent-eval"
+    names = [s.get("name", s.get("uses", "")) for s in job["steps"]]
+    assert "Offline checks" not in names  # test suites never run where the secret exists
+
+
+def test_actions_pinned_to_full_commit_shas(wf: dict[str, Any]) -> None:
+    uses = [s["uses"] for j in wf["jobs"].values() for s in j["steps"] if "uses" in s]
     assert uses
     for ref in uses:
         assert re.fullmatch(r"[\w.-]+/[\w.-]+@[0-9a-f]{40}", ref), ref
@@ -90,47 +122,102 @@ def test_secret_reaches_only_three_steps(wf: dict[str, Any], job: dict[str, Any]
     steps = steps_by_name(job)
     for name in with_secret:
         assert steps[name]["env"]["ANTHROPIC_API_KEY"] == "${{ secrets.ANTHROPIC_API_KEY }}"
-    # Steps that build or run untrusted code before the paid step never see it.
-    for name in ("Build sandbox image (no secrets)", "Sandbox isolation checks (no secrets)",
-                 "Offline checks (no secrets)", "Install (no secrets)"):  # fmt: skip
-        assert "secrets." not in json.dumps(steps[name])
 
 
-def test_secret_is_never_echoed(job: dict[str, Any]) -> None:
-    for step in job["steps"]:
-        script = step.get("run", "")
-        assert "echo $ANTHROPIC_API_KEY" not in script
-        assert '"$ANTHROPIC_API_KEY"' not in script
-        assert "set -x" not in script
-        assert "printenv" not in script
-        assert "env |" not in script
+def test_secret_is_never_echoed(wf: dict[str, Any]) -> None:
+    for j in wf["jobs"].values():
+        for step in j["steps"]:
+            script = step.get("run", "")
+            assert "set -x" not in script, step.get("name")
+            assert "echo $ANTHROPIC_API_KEY" not in script
+            assert '"$ANTHROPIC_API_KEY"' not in script
+            if "secrets.ANTHROPIC_API_KEY" in json.dumps(step):
+                for dump in ("printenv", "env |", "env >", "export -p", "declare -p", "set |"):
+                    assert dump not in script, (step["name"], dump)
 
 
 def test_refuses_without_secret(job: dict[str, Any]) -> None:
     step = steps_by_name(job)["Require the API key secret"]
     assert 'if [ -z "${ANTHROPIC_API_KEY:-}" ]' in step["run"]
     assert "exit 1" in step["run"]
-    names = [s.get("name", s.get("uses")) for s in job["steps"]]
-    assert names.index("Require the API key secret") < names.index(
-        "Paid smoke test (secret available to the controller only)"
+
+
+def names(job: dict[str, Any]) -> list[str]:
+    return [s.get("name", s.get("uses", "")) for s in job["steps"]]
+
+
+def test_secret_first_used_after_all_non_secret_work(job: dict[str, Any]) -> None:
+    order = names(job)
+    first_secret = min(
+        i for i, s in enumerate(job["steps"]) if "secrets.ANTHROPIC_API_KEY" in json.dumps(s)
     )
+    assert order[first_secret] == "Require the API key secret"
+    before = order[:first_secret]
+    for required in (
+        "Guard (no secrets)",
+        "Fingerprint trusted step environment (no secrets)",
+        "Install (no secrets)",
+        "Build sandbox image and preflight (no secrets)",
+        "Integrity gate before the secret is used (no secrets)",
+    ):
+        assert required in before, required
+    assert before[-1] == "Integrity gate before the secret is used (no secrets)"
+    fp = order.index("Fingerprint trusted step environment (no secrets)")
+    assert order[fp - 1].startswith("astral-sh/setup-uv@")
+    assert fp < order.index("Install (no secrets)")
 
 
-def test_exactly_one_haiku_paginator_run_with_caps(job: dict[str, Any]) -> None:
+def test_integrity_gate(job: dict[str, Any]) -> None:
+    steps = steps_by_name(job)
+    gate = steps["Integrity gate before the secret is used (no secrets)"]
+    assert gate["env"]["EXPECTED_DIGEST"] == "${{ steps.envsnap.outputs.digest }}"
+    for check in ("git diff --quiet HEAD --", "git rev-parse HEAD", "rm -rf .venv",
+                  "UV_NO_CACHE=1 uv sync --frozen", "rm -rf runs && mkdir runs"):  # fmt: skip
+        assert check in gate["run"], check
+    snap = steps["Fingerprint trusted step environment (no secrets)"]
+    fp = re.compile(r"digest=\$\(.*?cut -d' ' -f1\)", re.S)
+    assert fp.search(snap["run"]).group(0) == fp.search(gate["run"]).group(0)  # type: ignore[union-attr]
+
+
+def test_secret_steps_do_not_resync_packages(job: dict[str, Any]) -> None:
+    for step in job["steps"]:
+        if "secrets.ANTHROPIC_API_KEY" in json.dumps(step) and "uv run" in step.get("run", ""):
+            assert "uv run --no-sync" in step["run"], step["name"]
+
+
+def test_no_expression_interpolation_in_shell(wf: dict[str, Any]) -> None:
+    """Values reach scripts via env, never as `${{ }}` spliced into shell text."""
+    for j in wf["jobs"].values():
+        for step in j["steps"]:
+            assert "${{" not in step.get("run", ""), step.get("name")
+
+
+def test_require_docker_only_where_the_image_exists(wf: dict[str, Any]) -> None:
+    for j in wf["jobs"].values():
+        assert "SANDBOX_AGENT_REQUIRE_DOCKER" not in json.dumps(j.get("env", {}))
+        order = names(j)
+        for i, step in enumerate(j["steps"]):
+            if "SANDBOX_AGENT_REQUIRE_DOCKER" in json.dumps(step.get("env", {})):
+                built = next(k for k, n in enumerate(order) if n.startswith("Build sandbox image"))
+                assert i > built, step["name"]
+
+
+def test_exactly_one_haiku_paginator_run_with_caps(wf: dict[str, Any], job: dict[str, Any]) -> None:
     run = steps_by_name(job)["Paid smoke test (secret available to the controller only)"]["run"]
     assert run.count("sandbox-agent run") == 1
-    assert "sandbox-agent eval" not in run
+    assert "sandbox-agent eval" not in WORKFLOW.read_text()
     for flag in (
         "--provider anthropic",
         "--model claude-haiku-5-5",
         "--fixture paginator",
         "--max-cost-usd 0.50",
+        "--max-model-calls 12",
         "--experiment-budget-usd 0.50",
         "--ledger runs/spend-ledger.json",
     ):
         assert flag in run, flag
-    text = WORKFLOW.read_text()
-    assert not re.search(r"claude-(sonnet|opus|fable|mythos)", text)
+    assert not re.search(r"claude-(sonnet|opus|fable|mythos)", WORKFLOW.read_text())
+    assert "--provider anthropic" not in json.dumps(wf["jobs"]["verify"])
 
 
 def test_upload_only_after_clean_scan(job: dict[str, Any]) -> None:

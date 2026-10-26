@@ -2,16 +2,21 @@
 #
 # Security model (see docs/LIVE_SMOKE.md for the one-time GitHub setup):
 # - Trigger: workflow_dispatch only. GitHub only offers it for workflows on the default
-#   branch, and this job additionally refuses any ref other than refs/heads/main.
-# - Secret: ANTHROPIC_API_KEY lives only in the `sandbox-agent-eval` environment. The
-#   environment MUST restrict deployments to `main` and require a reviewer; that is the
+#   branch, and both jobs refuse any ref other than refs/heads/main.
+# - Two jobs on separate runners. `verify` has no environment and therefore no access to
+#   the secret; it runs all tests and isolation checks. `smoke` starts on a fresh VM
+#   after `verify` passes, so nothing the test suite did can persist into it.
+# - Secret: ANTHROPIC_API_KEY lives only in the `sandbox-agent-eval` environment, which
+#   restricts deployments to `main` and requires a reviewer (approval is requested when
+#   `smoke` starts, i.e. after `verify` has passed). That environment policy is the
 #   control that also covers a modified copy of this file on another branch.
-# - Pinning: the operator passes the exact reviewed commit SHA; the job refuses to run if
-#   main has moved. All actions are pinned to full commit SHAs.
-# - The secret is exposed only to three steps (presence check, smoke run, artifact scan).
-#   The controller passes no host environment to Docker, and every sandbox container's
-#   environment is verified (inspect) and attested (PID 1) to be exactly the six
-#   configured variables. Artifacts are scanned for the key before upload.
+# - Pinning: the operator passes the exact reviewed commit SHA; both jobs refuse to run
+#   if main has moved. All actions are pinned to full commit SHAs.
+# - In `smoke`, the secret reaches three steps only (presence check, paid run, artifact
+#   scan), after an integrity gate (step-environment fingerprint, clean tree, fresh
+#   cache-free venv). The controller passes no host environment to Docker; each sandbox
+#   container's environment is verified (inspect) and attested (PID 1) to be exactly the
+#   six configured variables. Artifacts are scanned for the key before upload.
 name: live-smoke (manual, paid)
 
 on:
@@ -34,8 +39,9 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  smoke:
-    name: paginator smoke test (claude-haiku-5-5)
+  # ================================================================== no secret access
+  verify:
+    name: verify (offline + sandbox isolation, no secrets)
     if: >-
       github.event_name == 'workflow_dispatch' &&
       github.repository == 'hydrangeas20/sandbox-agent' &&
@@ -43,13 +49,9 @@ jobs:
       inputs.expected_sha == github.sha &&
       inputs.confirm == 'RUN-PAID-HAIKU-SMOKE'
     runs-on: ubuntu-24.04
-    environment: sandbox-agent-eval
     timeout-minutes: 20
-    env:
-      SANDBOX_AGENT_RUNS: runs
-      SANDBOX_AGENT_REQUIRE_DOCKER: "1"
     steps:
-      - name: Guard (no secrets)
+      - name: Guard
         env:
           EXPECTED_SHA: ${{ inputs.expected_sha }}
           ACTUAL_SHA: ${{ github.sha }}
@@ -59,17 +61,6 @@ jobs:
           [[ "$REF" == "refs/heads/main" ]] || { echo "::error::refusing ref $REF"; exit 1; }
           [[ "$EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::expected_sha must be a full 40-hex SHA"; exit 1; }
           [[ "$EXPECTED_SHA" == "$ACTUAL_SHA" ]] || { echo "::error::main is at $ACTUAL_SHA, not the reviewed $EXPECTED_SHA"; exit 1; }
-
-      - name: Require the API key secret
-        id: check-secret
-        env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-        run: |
-          if [ -z "${ANTHROPIC_API_KEY:-}" ]; then
-            echo "::error::ANTHROPIC_API_KEY is not set in the sandbox-agent-eval environment; refusing to run"
-            exit 1
-          fi
-          echo "API key secret is present (value not shown)."
 
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -81,20 +72,112 @@ jobs:
           python-version: "3.12"
           enable-cache: false
 
-      - name: Install (no secrets)
+      - name: Install
         run: uv sync --frozen
 
-      - name: Offline checks (no secrets)
+      - name: Offline checks
         run: uv run pytest -q -m "not docker"
 
-      - name: Build sandbox image (no secrets)
-        run: docker build --build-arg BASE_IMAGE=python:3.12-slim -t sandbox-agent-runner:0.1 sandbox
+      - name: Build sandbox image
+        run: |
+          set -euo pipefail
+          docker pull python:3.12-slim
+          echo "base image digest (audit): $(docker image inspect --format '{{index .RepoDigests 0}}' python:3.12-slim)"
+          docker build --build-arg BASE_IMAGE=python:3.12-slim -t sandbox-agent-runner:0.1 sandbox
 
-      - name: Sandbox isolation checks (no secrets)
+      - name: Sandbox isolation checks
+        env:
+          SANDBOX_AGENT_REQUIRE_DOCKER: "1" # a missing daemon or image is an error here
         run: |
           uv run sandbox-agent preflight
           uv run pytest -q tests/test_sandbox_docker.py tests/test_security_review_docker.py \
             -k "network or privilege or env or pinned_profile or attestation or pid1"
+
+  # ================================================================== paid, fresh runner
+  smoke:
+    name: paginator smoke test (claude-haiku-5-5)
+    needs: verify
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      github.repository == 'hydrangeas20/sandbox-agent' &&
+      github.ref == 'refs/heads/main' &&
+      inputs.expected_sha == github.sha &&
+      inputs.confirm == 'RUN-PAID-HAIKU-SMOKE'
+    runs-on: ubuntu-24.04
+    environment: sandbox-agent-eval
+    timeout-minutes: 20
+    env:
+      SANDBOX_AGENT_RUNS: runs
+    steps:
+      # ------------------------------------------------------------ no secrets
+      - name: Guard (no secrets)
+        env:
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+          ACTUAL_SHA: ${{ github.sha }}
+          REF: ${{ github.ref }}
+        run: |
+          set -euo pipefail
+          [[ "$REF" == "refs/heads/main" ]] || { echo "::error::refusing ref $REF"; exit 1; }
+          [[ "$EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::expected_sha must be a full 40-hex SHA"; exit 1; }
+          [[ "$EXPECTED_SHA" == "$ACTUAL_SHA" ]] || { echo "::error::main is at $ACTUAL_SHA, not the reviewed $EXPECTED_SHA"; exit 1; }
+
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
+        with:
+          python-version: "3.12"
+          enable-cache: false
+
+      # Defence in depth for the few steps that run repository/dependency code in this
+      # job before the secret: anything they add via $GITHUB_ENV / $GITHUB_PATH changes
+      # this fingerprint (step outputs are immutable), checked by the integrity gate.
+      - name: Fingerprint trusted step environment (no secrets)
+        id: envsnap
+        run: |
+          set -euo pipefail
+          digest=$( { printf '%s\n' "$PATH"; env | cut -d= -f1 | grep -v -E '^(GITHUB_ACTION|GITHUB_ACTION_PATH|GITHUB_ACTION_REF|GITHUB_ACTION_REPOSITORY|GITHUB_ENV|GITHUB_OUTPUT|GITHUB_PATH|GITHUB_STATE|GITHUB_STEP_SUMMARY|INVOCATION_ID|_|EXPECTED_DIGEST|EXPECTED_SHA)$' | sort; } | sha256sum | cut -d' ' -f1)
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+
+      - name: Install (no secrets)
+        run: uv sync --frozen
+
+      - name: Build sandbox image and preflight (no secrets)
+        run: |
+          set -euo pipefail
+          docker pull python:3.12-slim
+          echo "base image digest (audit): $(docker image inspect --format '{{index .RepoDigests 0}}' python:3.12-slim)"
+          docker build --build-arg BASE_IMAGE=python:3.12-slim -t sandbox-agent-runner:0.1 sandbox
+          uv run sandbox-agent preflight
+
+      - name: Integrity gate before the secret is used (no secrets)
+        env:
+          EXPECTED_DIGEST: ${{ steps.envsnap.outputs.digest }}
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+        run: |
+          set -euo pipefail
+          digest=$( { printf '%s\n' "$PATH"; env | cut -d= -f1 | grep -v -E '^(GITHUB_ACTION|GITHUB_ACTION_PATH|GITHUB_ACTION_REF|GITHUB_ACTION_REPOSITORY|GITHUB_ENV|GITHUB_OUTPUT|GITHUB_PATH|GITHUB_STATE|GITHUB_STEP_SUMMARY|INVOCATION_ID|_|EXPECTED_DIGEST|EXPECTED_SHA)$' | sort; } | sha256sum | cut -d' ' -f1)
+          [[ "$digest" == "$EXPECTED_DIGEST" ]] || { echo "::error::step environment changed after setup (GITHUB_ENV/GITHUB_PATH injection?)"; exit 1; }
+          [[ "$(git rev-parse HEAD)" == "$EXPECTED_SHA" ]] || { echo "::error::checked-out commit changed"; exit 1; }
+          git diff --quiet HEAD -- || { echo "::error::tracked files were modified by an earlier step"; exit 1; }
+          # Fresh, cache-free environment from the locked, hash-pinned dependencies.
+          rm -rf .venv
+          UV_NO_CACHE=1 uv sync --frozen
+          rm -rf runs && mkdir runs
+
+      # ------------------------------------------------------------ secret steps
+      - name: Require the API key secret
+        id: check-secret
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          if [ -z "${ANTHROPIC_API_KEY:-}" ]; then
+            echo "::error::ANTHROPIC_API_KEY is not set in the sandbox-agent-eval environment; refusing to run"
+            exit 1
+          fi
+          echo "API key secret is present (value not shown)."
 
       - name: Paid smoke test (secret available to the controller only)
         id: smoke
@@ -103,8 +186,7 @@ jobs:
           SANDBOX_AGENT_OFFLINE: "0"
         run: |
           set +e
-          mkdir -p runs
-          uv run sandbox-agent run \
+          uv run --no-sync sandbox-agent run \
             --provider anthropic \
             --model claude-haiku-5-5 \
             --fixture paginator \
@@ -127,11 +209,12 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
           mkdir -p runs
-          uv run python scripts/check_artifacts_for_secret.py runs
+          uv run --no-sync python scripts/check_artifacts_for_secret.py runs
 
+      # ------------------------------------------------------------ no secrets
       - name: Job summary (no secrets)
         if: always()
-        run: uv run python scripts/smoke_summary.py runs/smoke-result.json runs/spend-ledger.json >> "$GITHUB_STEP_SUMMARY"
+        run: uv run --no-sync python scripts/smoke_summary.py runs/smoke-result.json runs/spend-ledger.json >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload redacted artifacts
         if: always() && steps.leakcheck.outcome == 'success'
@@ -144,6 +227,8 @@ jobs:
 
       - name: Fail on controller error
         if: steps.smoke.outputs.exit_code != '0' && steps.smoke.outputs.exit_code != '1'
+        env:
+          EXIT_CODE: ${{ steps.smoke.outputs.exit_code }}
         run: |
-          echo "::error::controller exited with ${{ steps.smoke.outputs.exit_code }}"
+          echo "::error::controller exited with ${EXIT_CODE:-none}"
           exit 1

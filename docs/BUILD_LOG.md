@@ -128,3 +128,14 @@ Concise per-milestone progress entries. Newest last.
   - Environments and branch protection cannot be configured from this session.
 - The ledger does not persist across Actions runs; cross-run limits must come from the Console. See `docs/LIVE_SMOKE.md`.
 - Offline: `make ci` 399 passed; security suites 285/0/0; demo succeeded; scripted eval 8/8.
+
+## Final pre-merge security and workflow review (2026-10-26)
+- Live smoke split into two jobs:
+  - `verify` has no environment or secret access. It runs the offline tests, image build and isolation checks.
+  - `smoke` runs on a fresh runner after `verify`. Its secret is first read after all non-secret work and an integrity gate: an unchanged step-environment fingerprint (catches `GITHUB_ENV`/`GITHUB_PATH` injection), `HEAD == expected_sha`, a clean tree, and a cache-free rebuilt venv.
+- Fixed a latent bug: the job-wide `SANDBOX_AGENT_REQUIRE_DOCKER=1` made the offline checks fail before the image existed. It is now scoped to the isolation step.
+- Removed a `${{ }}` interpolation from a run script.
+- A local dry run of both jobs passed. With the secret missing, the run refused at the presence check. Simulated tampering (`BASH_ENV`, a PATH prepend, a modified tracked file) was stopped by the gate.
+- Full-history credential scan (27 commits, 216 blobs; pattern scan plus detect-secrets) found no real credentials, only fakes and fixtures. Build-environment paths were scrubbed from the evidence logs.
+- New test: `test_live_smoke_configuration_is_bounded` (never-finishing model, maximal usage, constant timeouts) checks ≤12 requests, one reservation per request, and spend ≤ $0.50.
+- Offline: `make ci` 409 passed; security suites 285/0/0; demo succeeded; actionlint clean. No paid calls.

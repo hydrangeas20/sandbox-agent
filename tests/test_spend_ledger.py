@@ -268,3 +268,72 @@ def test_real_provider_requires_a_ledger(
     assert r.status == "provider_error"
     assert "experiment budget" in r.reason
     time.sleep(0)  # no request was attempted (no transport configured)
+
+
+# ---------------------------------------------------------------- the live smoke configuration
+
+
+def _smoke_provider(ledger: SpendLedger, transport: Any) -> AnthropicProvider:
+    """Exactly what `sandbox-agent run` builds for the live-smoke workflow."""
+    return AnthropicProvider(
+        model="claude-haiku-5-5",
+        api_key=KEY,
+        transport=transport,
+        budget=ModelBudget(max_cost_usd=0.50, max_model_calls=12),
+        ledger=ledger,
+        ledger_label="paginator",
+    )
+
+
+def _tool(n: int, usage: dict[str, int]) -> dict[str, Any]:
+    return {
+        "content": [{"type": "tool_use", "id": f"t{n}", "name": "list_files", "input": {}}],
+        "usage": usage,
+    }
+
+
+@pytest.mark.parametrize("behaviour", ["never_finishes", "maximal_usage", "always_times_out"])
+def test_live_smoke_configuration_is_bounded(
+    tmp_path: Path, fixtures_dir: Path, monkeypatch: pytest.MonkeyPatch, behaviour: str
+) -> None:
+    _stub_docker(monkeypatch, FakeRunner())
+    led = SpendLedger(tmp_path / "ledger.json", experiment_budget_usd=0.50)
+    requests: list[int] = []
+
+    def transport(body: dict[str, Any], headers: dict[str, str], timeout: float) -> Any:
+        # A reservation for this request is already on disk when it is sent.
+        assert (
+            sum(e["state"] == "reserved" for e in json.loads(led.path.read_text())["entries"]) == 1
+        )
+        assert body["max_tokens"] == 1024
+        assert body["model"] == "claude-haiku-5-5"
+        n = len(requests)
+        requests.append(n)
+        if behaviour == "always_times_out":
+            raise ProviderError("anthropic API request failed: TimeoutError")
+        usage = {
+            "input_tokens": 90_000 if behaviour == "maximal_usage" else 3_000,
+            "output_tokens": 1024,
+        }
+        return _tool(n, usage)
+
+    settings = Settings(fixtures_dir=fixtures_dir, runs_dir=tmp_path / "runs", offline=False)
+    result = run_task(
+        TaskRequest(
+            fixture="paginator", task="x", provider="anthropic",
+            model_budget=ModelBudget(max_cost_usd=0.50, max_model_calls=12),
+        ),
+        settings,
+        provider_factory=lambda _r: _smoke_provider(led, transport),
+    )  # fmt: skip
+    entries = json.loads(led.path.read_text())["entries"]
+    assert len(requests) <= 12
+    assert len(entries) == len(requests)  # one reservation per request, no more, no fewer
+    assert all(e["state"] == "settled" for e in entries)
+    assert result.status in {"budget_exhausted", "provider_error"}
+    assert result.model_usage is not None
+    assert result.model_usage["calls"] == len(requests)
+    assert led.spent() <= 0.50
+    assert result.model_usage["cost_usd"] <= 0.50
+    if behaviour == "always_times_out":
+        assert len(requests) == 3  # max_invalid_outputs=2: the third failure ends the run

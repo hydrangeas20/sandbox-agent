@@ -1918,7 +1918,7 @@ tmp_path = PosixPath('<tmp>
 >       assert _owned_workspaces(proc.pid)
 E       AssertionError: assert []
 E        +  where [] = _owned_workspaces(23692)
-E        +    where 23692 = <Popen: returncode: None args: ['/tmp/claude-0/-home-claude/b751fee5-a134-58...>.pid
+E        +    where 23692 = <Popen: returncode: None args: ['<scratch>
 
 tests/test_security_review_docker.py:262: AssertionError
 _________________ test_sr04_sigkill_to_controller_is_recovered _________________

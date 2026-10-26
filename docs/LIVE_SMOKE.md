@@ -48,19 +48,54 @@ Actions → **live-smoke (manual, paid)** → *Run workflow* on `main`, with:
   refuses to run if `main` has moved, so you run exactly what you reviewed.
 - `confirm`: `RUN-PAID-HAIKU-SMOKE`
 
-The job, in order:
+The workflow has two jobs on separate runners.
 
-1. Checks the guard, then that the secret is present. It fails closed if missing,
-   and never shows the value.
-2. Checks out that exact SHA with `persist-credentials: false`.
-3. Without the secret: installs dependencies, runs the offline tests, builds the
-   sandbox image from `python:3.12-slim`, runs preflight and 9 Docker isolation tests
-   (network, privileges, exact env, pinned seccomp, runtime attestation, PID 1).
-4. Runs the paid task. The secret is in the **controller** process environment only.
+**`verify`** has no environment, so it cannot read the secret. It checks the guard,
+checks out the exact SHA (`persist-credentials: false`), installs dependencies, runs
+the offline tests, builds the sandbox image from `python:3.12-slim`, and runs
+preflight plus 9 Docker isolation tests (network, privileges, exact env, pinned
+seccomp, runtime attestation, PID 1).
+
+**`smoke`** starts only after `verify` passes, on a fresh VM, so nothing the test
+suite did can persist into it. The environment's reviewer approval is requested at
+this point. In order:
+
+1. Without the secret: guard, checkout, setup-uv, a fingerprint of the step
+   environment (PATH plus variable names), install, image build, preflight.
+2. Integrity gate, without the secret: the fingerprint must be unchanged (this catches
+   `GITHUB_ENV`/`GITHUB_PATH` injection such as `BASH_ENV` or `LD_PRELOAD`), `HEAD`
+   must equal `expected_sha`, tracked files must be unmodified, and the virtualenv is
+   rebuilt from scratch with no cache.
+3. **Only now** is the secret first read: a presence check that fails closed if it is
+   missing and never shows the value.
+4. The paid task. The secret is in the **controller** process environment only.
 5. With the secret: scans `runs/` for the key and its encodings, and for any
    Anthropic-key-shaped string. Artifacts are uploaded **only** if the scan is clean.
 6. Writes a job summary: status, API calls, tokens, estimated cost, failed requests,
    ledger state.
+
+The secret reaches three steps only (presence check, paid run, artifact scan).
+`tests/test_live_workflow.py` enforces this structure.
+
+## Cost bound for one run
+
+- **At most 12 API requests.** `--max-model-calls 12` is enforced in the provider
+  before each request, and the agent loop has at most 12 iterations with one request
+  each. Failed requests count, and the third invalid or failed response ends the run.
+- **Bounded before every request.** Each request's worst-case cost (estimated input
+  tokens at the cache-write rate plus the full 1,024-token output allowance) is
+  reserved in the ledger and checked against both $0.50 caps *before* it is sent.
+  A request that would exceed either cap is never sent. Haiku prompts over 100k
+  tokens are refused because they would fall into a different price tier.
+- **Realistic worst case is far below $0.50.** The 150k total-token budget bounds
+  successful calls at about $0.025 (150k × $0.125/MTok + 12 × 1,024 × $0.50/MTok).
+  Up to 3 ambiguous failures (timeouts, resets, 5xx) are charged at their worst case,
+  at most about $0.013 each. The total is under $0.07.
+- These are estimates from published prices. The first request's input estimate is a
+  byte-count heuristic, so one request could exceed its estimate. The Anthropic
+  Console is authoritative.
+  `test_live_smoke_configuration_is_bounded` simulates this exact configuration with
+  a never-finishing model, maximal usage and constant timeouts.
 
 ## How the secret is kept from the sandbox
 
@@ -72,8 +107,7 @@ container's environment is then:
 1. verified with `docker inspect` (it must match exactly) before start;
 2. scrubbed again by the PID 1 entrypoint before the test command runs.
 
-`test_env_is_minimal` and `test_sr02_*`, which run in this job before the paid
-step, plant credential-like variables in the host environment and assert that
+`test_env_is_minimal` and `test_sr02_*`, which run in the `verify` job, plant credential-like variables in the host environment and assert that
 they are absent inside the container.
 
 ## Spend ledger on GitHub Actions: what it does and does not protect
