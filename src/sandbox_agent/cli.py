@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import signal
 import sys
 import tempfile
 from pathlib import Path
@@ -75,7 +76,8 @@ def cmd_run(args: argparse.Namespace, settings: Settings) -> int:
     req = TaskRequest(
         fixture=args.fixture, task=args.task, provider=args.provider, scenario=args.scenario
     )
-    result = run_task(req, settings)
+    sandbox_config = SandboxConfig(timeout_s=args.timeout) if args.timeout else None
+    result = run_task(req, settings, sandbox_config=sandbox_config)
     trace_path = _write_trace(result, settings, args.trace_out)
     if args.json:
         print(result.model_dump_json(indent=2))
@@ -125,12 +127,14 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--scenario", default=None, help="scripted scenario (default: fixture name)")
     run.add_argument("--json", action="store_true", help="print the full TaskResult as JSON")
     run.add_argument("--trace-out", default=None, help="trace JSONL path (default: runs/)")
+    run.add_argument("--timeout", type=float, default=None, help="per-command sandbox timeout (s)")
     run.set_defaults(func=cmd_run)
 
     demo = sub.add_parser("demo", help="one-command offline demo on the paginator fixture")
     demo.add_argument("--json", action="store_true")
     demo.add_argument("--trace-out", default=None)
     demo.add_argument("--scenario", default=None)
+    demo.add_argument("--timeout", type=float, default=None)
     demo.set_defaults(func=cmd_demo)
 
     sub.add_parser("preflight", help="check Docker isolation prerequisites").set_defaults(
@@ -143,7 +147,14 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _terminate(signum: int, _frame: object) -> None:
+    # Unwind normally so `finally` blocks remove the container and the workspace (SR-04).
+    raise SystemExit(128 + signum)
+
+
 def main(argv: list[str] | None = None) -> int:
+    signal.signal(signal.SIGTERM, _terminate)
+    signal.signal(signal.SIGHUP, _terminate)
     args = build_parser().parse_args(argv)
     settings = Settings.from_env()
     try:

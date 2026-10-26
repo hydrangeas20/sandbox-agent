@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import json
 from pathlib import Path
 from typing import Any
 
@@ -10,7 +11,7 @@ import pytest
 
 from sandbox_agent.config import SandboxConfig
 from sandbox_agent.errors import SandboxIsolationError, SandboxUnavailableError
-from sandbox_agent.sandbox import ContainerCommand, DockerSandbox
+from sandbox_agent.sandbox import NONCE_VAR, ContainerCommand, DockerSandbox, load_seccomp_profile
 
 CMD = ContainerCommand(argv=("python3", "-c", "print(1)"))
 
@@ -34,7 +35,7 @@ def good_inspect(cfg: SandboxConfig, source: Path) -> dict[str, Any]:
             "Privileged": False,
             "CapDrop": ["ALL"],
             "CapAdd": None,
-            "SecurityOpt": ["no-new-privileges"],
+            "SecurityOpt": ["no-new-privileges", "seccomp=" + json.dumps(load_seccomp_profile())],
             "ReadonlyRootfs": True,
             "Memory": cfg.memory_bytes,
             "MemorySwap": cfg.memory_bytes,
@@ -55,7 +56,10 @@ def good_inspect(cfg: SandboxConfig, source: Path) -> dict[str, Any]:
             "VolumesFrom": None,
             "LogConfig": {"Type": "none"},
         },
-        "Config": {"User": cfg.user, "Env": [f"{k}={v}" for k, v in cfg.env]},
+        "Config": {
+            "User": cfg.user,
+            "Env": [*(f"{k}={v}" for k, v in cfg.env), f"{NONCE_VAR}={'0' * 32}"],
+        },
         "Mounts": [
             {
                 "Type": "bind",
@@ -88,11 +92,13 @@ def test_create_args_contain_every_control(sandbox: DockerSandbox, root: Path) -
     # Command comes after the image and a `--` separator; it is never a shell string.
     sep = args.index("--")
     assert args[sep + 1] == sandbox.config.image
-    assert tuple(args[sep + 2 :]) == CMD.argv
+    # The trusted entrypoint wraps the command; the original argv follows its own `--`.
+    assert args[sep + 2 :] == sandbox.wrapped_argv(CMD)
+    assert tuple(args[-len(CMD.argv) :]) == CMD.argv
 
 
 def test_verify_accepts_matching_container(sandbox: DockerSandbox, root: Path) -> None:
-    sandbox.verify(good_inspect(sandbox.config, root / "ws"), root / "ws", set())
+    sandbox.verify(good_inspect(sandbox.config, root / "ws"), root / "ws")
 
 
 MUTATIONS: dict[str, tuple[str, str, Any]] = {
@@ -130,7 +136,7 @@ def test_verify_rejects_deviation(name: str, sandbox: DockerSandbox, root: Path)
     data = good_inspect(sandbox.config, root / "ws")
     data[section][key] = value
     with pytest.raises(SandboxIsolationError):
-        sandbox.verify(data, root / "ws", set())
+        sandbox.verify(data, root / "ws")
 
 
 @pytest.mark.parametrize(
@@ -163,7 +169,7 @@ def test_verify_rejects_extra_mount(
             m["Source"] = str((root / "ws").resolve())
     data["Mounts"] = patched
     with pytest.raises(SandboxIsolationError):
-        sandbox.verify(data, root / "ws", set())
+        sandbox.verify(data, root / "ws")
 
 
 def test_mount_source_outside_root_rejected(sandbox: DockerSandbox, tmp_path: Path) -> None:

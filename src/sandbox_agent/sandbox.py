@@ -8,19 +8,29 @@ Flow for one run (fail closed at every step):
 
 1. Validate the workspace mount source (must live under the private workspace
    root; sensitive host paths are rejected).
-2. ``docker create`` with an argv list (never a shell string).
+2. ``docker create`` with an argv list (never a shell string), a **pinned seccomp
+   profile**, a per-run nonce and a deadline label.
 3. ``docker inspect`` the *created* container and compare every isolation
-   setting against the config. Any mismatch -> :class:`SandboxIsolationError`
+   setting against the config, including the exact seccomp profile, the exact
+   environment and the exact command. Any mismatch -> :class:`SandboxIsolationError`
    and the container is removed **before it starts**.
-4. ``docker start --attach`` with bounded output readers and a wall-clock
-   timeout (``docker kill`` on expiry).
-5. Inspect the final state (exit code, OOM kill) and always ``docker rm -f``.
+4. ``docker start --attach``. The trusted entrypoint (``sandbox/entry.py``, PID 1)
+   attests the controls from inside the container and only then runs the command;
+   a missing or failed attestation aborts the run. Output is bounded per stream
+   (head + tail) and in total (the container is killed past the budget), and a
+   wall-clock timeout triggers ``docker kill``. PID 1 also enforces its own
+   deadline, so a container cannot outlive a crashed host process for long.
+5. Classify the outcome (OOM attribution uses the entrypoint's cgroup evidence)
+   and always ``docker rm -f``. Stale containers from crashed runs are reaped at
+   the next preflight.
 """
 
 from __future__ import annotations
 
 import json
 import os
+import re
+import secrets
 import shutil
 import subprocess
 import threading
@@ -31,11 +41,29 @@ from typing import IO, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from sandbox_agent.config import ALLOWED_ENV_KEYS, CONTAINER_TMP, WORKSPACE_MOUNT, SandboxConfig
+from sandbox_agent.config import CONTAINER_TMP, SANDBOX_UID, WORKSPACE_MOUNT, SandboxConfig
 from sandbox_agent.errors import SandboxIsolationError, SandboxUnavailableError
+from sandbox_agent.ownership import current_owner, owner_alive
 
 _CLI_TIMEOUT_S = 30.0
 _LABEL = "sandbox-agent.managed=1"
+_DEADLINE_LABEL = "sandbox-agent.deadline"
+_OWNER_LABEL = "sandbox-agent.owner"
+_TAIL_BYTES = 8192
+
+SECCOMP_PROFILE_PATH = Path(__file__).with_name("seccomp") / "profile.json"
+ENTRYPOINT = ("python3", "-I", "-S", "/opt/sandbox-agent/entry.py")
+NONCE_VAR = "SANDBOX_AGENT_NONCE"
+_NONCE_RE = re.compile(r"^[0-9a-f]{32}$")
+#: Security options a created container may carry, besides the pinned seccomp profile.
+_ALLOWED_SECURITY_OPTS = frozenset({"no-new-privileges", "no-new-privileges:true"})
+
+Status = Literal["completed", "timeout", "oom_killed", "killed", "output_limit"]
+
+
+def load_seccomp_profile() -> dict[str, Any]:
+    profile: dict[str, Any] = json.loads(SECCOMP_PROFILE_PATH.read_text())
+    return profile
 
 
 def _sensitive_host_paths() -> list[Path]:
@@ -77,33 +105,65 @@ class ContainerCommand(BaseModel):
 
 
 class RunOutcome(BaseModel):
-    """Result of one sandboxed command. Resource outcomes are explicit fields."""
+    """Result of one sandboxed command. Resource outcomes are explicit fields.
+
+    ``status``:
+      * ``timeout`` - host timeout or in-container watchdog deadline;
+      * ``oom_killed`` - Docker reported OOMKilled, or the entrypoint observed the
+        workload die by SIGKILL while the cgroup's ``oom_kill`` counter increased;
+      * ``killed`` - SIGKILL (exit 137) with no OOM evidence and not sent by the runner;
+      * ``output_limit`` - the total output budget was exceeded and the runner killed it.
+    """
 
     model_config = ConfigDict(frozen=True)
 
-    #: ``killed``: SIGKILL (exit 137) that the runner did not send. On cgroup v2 hosts Docker
-    #: does not always set ``OOMKilled`` when the kernel OOM-kills the container's process.
-    status: Literal["completed", "timeout", "oom_killed", "killed"]
+    status: Status
     exit_code: int | None
     stdout: str
     stderr: str
+    stdout_tail: str = ""
+    stderr_tail: str = ""
     stdout_truncated: bool
     stderr_truncated: bool
     stdout_bytes_total: int
     stderr_bytes_total: int
     duration_ms: int
     container: str
+    attestation: dict[str, Any] = Field(default_factory=dict)
+    exit_report: dict[str, Any] | None = None
+
+
+class _OutputBudget:
+    """Total bytes shared by both streams; fires ``on_exceeded`` once when exceeded."""
+
+    def __init__(self, limit: int, on_exceeded: Any) -> None:
+        self.limit = limit
+        self.total = 0
+        self.tripped = False
+        self._on_exceeded = on_exceeded
+        self._lock = threading.Lock()
+
+    def consume(self, n: int) -> None:
+        fire = False
+        with self._lock:
+            self.total += n
+            if self.total > self.limit and not self.tripped:
+                self.tripped = fire = True
+        if fire:
+            self._on_exceeded()
 
 
 class _BoundedReader(threading.Thread):
-    """Drain a pipe completely, keeping at most ``limit`` bytes in memory."""
+    """Drain a pipe completely, keeping the first ``limit`` bytes and a tail window."""
 
-    def __init__(self, stream: IO[bytes], limit: int) -> None:
+    def __init__(self, stream: IO[bytes], limit: int, budget: _OutputBudget | None = None) -> None:
         super().__init__(daemon=True)
         self._stream = stream
         self._limit = limit
+        self._budget = budget
         self._chunks: list[bytes] = []
         self._kept = 0
+        self._tail = b""
         self.total = 0
 
     def run(self) -> None:
@@ -117,10 +177,17 @@ class _BoundedReader(threading.Thread):
                 piece = chunk[:room]
                 self._chunks.append(piece)
                 self._kept += len(piece)
+            self._tail = (self._tail + chunk)[-_TAIL_BYTES:]
+            if self._budget is not None:
+                self._budget.consume(len(chunk))
 
     @property
     def text(self) -> str:
         return b"".join(self._chunks).decode("utf-8", errors="replace")
+
+    @property
+    def tail(self) -> str:
+        return self._tail.decode("utf-8", errors="replace")
 
     @property
     def truncated(self) -> bool:
@@ -146,6 +213,8 @@ class DockerSandbox:
                 "docker CLI not found; refusing to run (no host fallback)"
             )
         self._docker = resolved
+        if not SECCOMP_PROFILE_PATH.is_file():
+            raise SandboxIsolationError(f"pinned seccomp profile missing: {SECCOMP_PROFILE_PATH}")
 
     # ------------------------------------------------------------------ docker CLI
 
@@ -171,19 +240,52 @@ class DockerSandbox:
         sec = [str(s) for s in data.get("SecurityOptions") or []]
         if not any("seccomp" in s for s in sec):
             raise SandboxIsolationError("docker daemon does not report seccomp support")
-        if any("seccomp" in s and "unconfined" in s for s in sec):
-            raise SandboxIsolationError("daemon default seccomp profile is unconfined")
-        image = self._cli("image", "inspect", self.config.image)
+        image = self._cli("image", "inspect", "--format", "{{json .Config}}", self.config.image)
         if image.returncode != 0:
             raise SandboxUnavailableError(
                 f"sandbox image {self.config.image} not found; run `make image`"
             )
+        image_cfg: dict[str, Any] = json.loads(image.stdout) or {}
+        image_env = set(image_cfg.get("Env") or [])
+        wanted = {f"{k}={v}" for k, v in self.config.env}
+        if image_env != wanted:
+            raise SandboxIsolationError(
+                f"image env differs from the configured env: extra={sorted(image_env - wanted)} "
+                f"missing={sorted(wanted - image_env)}; rebuild with `make image`"
+            )
+        if image_cfg.get("Entrypoint"):
+            raise SandboxIsolationError(f"image sets an entrypoint: {image_cfg['Entrypoint']}")
+        reaped = self.reap_stale()
         return {
             "server_version": data.get("ServerVersion"),
             "security_options": sec,
             "cgroup_version": data.get("CgroupVersion"),
             "image": self.config.image,
+            "seccomp_profile": SECCOMP_PROFILE_PATH.name,
+            "reaped_containers": reaped,
         }
+
+    def reap_stale(self, now: float | None = None) -> int:
+        """Remove orphaned managed containers (SR-04).
+
+        A container is removed when its owning controller (same host) is no longer
+        running, or when its reap deadline (``create + timeout + watchdog grace + 60 s``)
+        has passed. Containers of live controllers within their deadline are untouched.
+        """
+        fmt = '{{.ID}}|{{.Label "' + _DEADLINE_LABEL + '"}}|{{.Label "' + _OWNER_LABEL + '"}}'
+        listing = self._cli("ps", "-a", "--filter", f"label={_LABEL}", "--format", fmt)
+        if listing.returncode != 0:
+            raise SandboxUnavailableError(f"docker ps failed: {listing.stderr.strip()}")
+        now = time.time() if now is None else now
+        stale = []
+        for line in listing.stdout.splitlines():
+            cid, deadline, owner = [*line.split("|"), "", ""][:3]
+            expired = not deadline.strip().isdigit() or int(deadline) < now
+            if expired or owner_alive(owner) is False:
+                stale.append(cid)
+        if stale:
+            self._cli("rm", "-f", *stale)
+        return len(stale)
 
     # ------------------------------------------------------------------ arguments
 
@@ -204,20 +306,40 @@ class DockerSandbox:
             raise SandboxIsolationError("mount source path contains reserved characters")
         return resolved
 
+    def wrapped_argv(self, command: ContainerCommand) -> list[str]:
+        cfg = self.config
+        return [
+            *ENTRYPOINT,
+            "--deadline", f"{cfg.timeout_s + cfg.watchdog_grace_s}",
+            "--uid", str(SANDBOX_UID),
+            "--env-keys", ",".join(k for k, _ in cfg.env),
+            "--",
+            *command.argv,
+        ]  # fmt: skip
+
     def build_create_args(
-        self, workspace_dir: Path, command: ContainerCommand, name: str
+        self,
+        workspace_dir: Path,
+        command: ContainerCommand,
+        name: str,
+        *,
+        nonce: str = "0" * 32,
     ) -> list[str]:
         cfg = self.config
         source = self.validate_mount_source(workspace_dir)
+        deadline = int(time.time() + cfg.timeout_s + cfg.watchdog_grace_s + 60)
         args = [
             "create",
             "--name", name,
             "--label", _LABEL,
+            "--label", f"{_DEADLINE_LABEL}={deadline}",
+            "--label", f"{_OWNER_LABEL}={current_owner()}",
             "--hostname", "sandbox",
             "--network", cfg.network,
             "--user", cfg.user,
             "--cap-drop", "ALL",
             "--security-opt", "no-new-privileges",
+            "--security-opt", f"seccomp={SECCOMP_PROFILE_PATH}",
             "--read-only",
             "--tmpfs", f"{CONTAINER_TMP}:rw,noexec,nosuid,nodev,size={cfg.tmpfs_bytes},mode=1777",
             "--memory", str(cfg.memory_bytes),
@@ -235,13 +357,18 @@ class DockerSandbox:
         ]  # fmt: skip
         for key, value in cfg.env:
             args += ["--env", f"{key}={value}"]
-        args += ["--", cfg.image, *command.argv]
+        args += ["--env", f"{NONCE_VAR}={nonce}"]
+        args += ["--", cfg.image, *self.wrapped_argv(command)]
         return args
 
     # ------------------------------------------------------------------ verification
 
-    def verify(
-        self, inspect: dict[str, Any], workspace_dir: Path, image_env_keys: set[str]
+    def verify(  # noqa: PLR0915 - one flat checklist is easier to review than helpers
+        self,
+        inspect: dict[str, Any],
+        workspace_dir: Path,
+        nonce: str | None = None,
+        expected_argv: list[str] | None = None,
     ) -> None:
         """Compare a created container against the config. Raises on any deviation."""
         cfg = self.config
@@ -257,9 +384,29 @@ class DockerSandbox:
         expect(host.get("Privileged") is False, "container is privileged")
         expect([c.upper() for c in host.get("CapDrop") or []] == ["ALL"], "CapDrop is not [ALL]")
         expect(not host.get("CapAdd"), f"CapAdd is {host.get('CapAdd')!r}")
+
+        # Security options: an explicit allowlist. The daemon's *default* seccomp profile
+        # is invisible to inspect, so the pinned profile must be present and identical.
         sec = [str(s) for s in host.get("SecurityOpt") or []]
         expect(any(s.startswith("no-new-privileges") for s in sec), "no-new-privileges missing")
-        expect(not any("unconfined" in s for s in sec), f"unconfined security option: {sec}")
+        seccomp = [s for s in sec if s.startswith("seccomp=")]
+        others = [
+            s for s in sec if not s.startswith("seccomp=") and s not in _ALLOWED_SECURITY_OPTS
+        ]
+        expect(not others, f"unexpected security options: {others}")
+        if len(seccomp) != 1:
+            problems.append(f"expected exactly one pinned seccomp profile, found {len(seccomp)}")
+        else:
+            try:
+                applied = json.loads(seccomp[0].removeprefix("seccomp="))
+            except json.JSONDecodeError:
+                applied = None
+            expect(applied == load_seccomp_profile(), "seccomp profile differs from pinned profile")
+        expect(
+            str(inspect.get("AppArmorProfile", "")) != "unconfined",
+            "apparmor profile is unconfined",
+        )
+
         expect(host.get("ReadonlyRootfs") is True, "root filesystem is writable")
         expect(host.get("Memory") == cfg.memory_bytes, f"memory limit {host.get('Memory')}")
         expect(host.get("MemorySwap") == cfg.memory_bytes, f"swap limit {host.get('MemorySwap')}")
@@ -280,6 +427,10 @@ class DockerSandbox:
         expect(not host.get("VolumesFrom"), "volumes-from present")
         expect((host.get("LogConfig") or {}).get("Type") == "none", "log driver is not none")
         expect(conf.get("User") == cfg.user, f"user is {conf.get('User')!r}")
+        expect(not conf.get("Entrypoint"), f"image entrypoint is set: {conf.get('Entrypoint')}")
+        if expected_argv is not None:
+            actual = [inspect.get("Path"), *(inspect.get("Args") or [])]
+            expect(actual == expected_argv, f"container command differs: {actual}")
 
         mounts = inspect.get("Mounts") or []
         expected_source = str(workspace_dir.resolve())
@@ -292,36 +443,47 @@ class DockerSandbox:
         )
         expect(ok_mounts, f"unexpected mounts: {mounts}")
 
-        allowed_keys = ALLOWED_ENV_KEYS | image_env_keys
-        for entry in conf.get("Env") or []:
-            key = str(entry).split("=", 1)[0]
-            expect(key in allowed_keys, f"unexpected env var {key}")
+        # Environment: exactly the configured variables plus this run's nonce. Values
+        # are compared too, so neither the image nor the daemon can add or alter any.
+        env = [str(e) for e in conf.get("Env") or []]
         wanted = {f"{k}={v}" for k, v in cfg.env}
-        expect(wanted <= set(conf.get("Env") or []), "configured env not applied")
+        nonce_entries = [e for e in env if e.startswith(f"{NONCE_VAR}=")]
+        rest = set(env) - set(nonce_entries)
+        expect(
+            rest == wanted,
+            f"env differs: extra={sorted(rest - wanted)} missing={sorted(wanted - rest)}",
+        )
+        expect(len(env) == len(set(env)), "duplicate env entries")
+        if len(nonce_entries) != 1:
+            problems.append("env nonce missing")
+        else:
+            value = nonce_entries[0].split("=", 1)[1]
+            expect(
+                bool(_NONCE_RE.fullmatch(value)) and (nonce is None or value == nonce),
+                "env nonce mismatch",
+            )
 
         if problems:
             raise SandboxIsolationError("isolation verification failed: " + "; ".join(problems))
-
-    def _image_env_keys(self) -> set[str]:
-        res = self._cli("image", "inspect", "--format", "{{json .Config.Env}}", self.config.image)
-        if res.returncode != 0:
-            raise SandboxUnavailableError(f"cannot inspect image {self.config.image}")
-        env = json.loads(res.stdout) or []
-        return {str(e).split("=", 1)[0] for e in env}
 
     # ------------------------------------------------------------------ run
 
     def run(self, workspace_dir: Path, command: ContainerCommand) -> RunOutcome:
         name = f"sandbox-agent-{uuid.uuid4().hex[:12]}"
-        create_args = self.build_create_args(workspace_dir, command, name)
-        image_env = self._image_env_keys()
+        nonce = secrets.token_hex(16)
+        create_args = self.build_create_args(workspace_dir, command, name, nonce=nonce)
         created = self._cli(*create_args)
         if created.returncode != 0:
             raise SandboxIsolationError(f"docker create failed: {created.stderr.strip()[:500]}")
         container_id = created.stdout.strip()
         try:
-            self.verify(self._inspect(container_id), workspace_dir, image_env)
-            return self._start(container_id, name)
+            self.verify(
+                self._inspect(container_id),
+                workspace_dir,
+                nonce=nonce,
+                expected_argv=self.wrapped_argv(command),
+            )
+            return self._start(container_id, name, nonce)
         finally:
             self._cli("rm", "-f", container_id)
 
@@ -335,9 +497,18 @@ class DockerSandbox:
         result: dict[str, Any] = data[0]
         return result
 
-    def _start(self, container_id: str, name: str) -> RunOutcome:
+    def _start(self, container_id: str, name: str, nonce: str) -> RunOutcome:  # noqa: PLR0915
         limit = self.config.max_output_bytes
         started = time.monotonic()
+        killed_by_budget = threading.Event()
+
+        def kill_for_output() -> None:
+            # Called from a reader thread; kill asynchronously so both readers keep
+            # draining (a blocked reader back-pressures dockerd and stalls the kill).
+            killed_by_budget.set()
+            threading.Thread(target=self._cli, args=("kill", container_id), daemon=True).start()
+
+        budget = _OutputBudget(self.config.max_total_output_bytes, kill_for_output)
         proc = subprocess.Popen(
             [self._docker, "start", "--attach", container_id],
             stdout=subprocess.PIPE,
@@ -347,8 +518,8 @@ class DockerSandbox:
         )
         assert proc.stdout is not None  # noqa: S101 - guaranteed by PIPE
         assert proc.stderr is not None  # noqa: S101
-        out = _BoundedReader(proc.stdout, limit)
-        err = _BoundedReader(proc.stderr, limit)
+        out = _BoundedReader(proc.stdout, limit, budget)
+        err = _BoundedReader(proc.stderr, limit, budget)
         out.start()
         err.start()
         timed_out = False
@@ -366,12 +537,29 @@ class DockerSandbox:
         err.join(timeout=5)
         duration_ms = int((time.monotonic() - started) * 1000)
         state = self._inspect(container_id).get("State") or {}
-        oom = bool(state.get("OOMKilled"))
         exit_code = state.get("ExitCode")
-        status: Literal["completed", "timeout", "oom_killed", "killed"]
-        if timed_out:
+
+        stderr_head, attestation, failed = _take_marker(err.text, "attest", nonce, first=True)
+        if failed is not None:
+            raise SandboxIsolationError(f"runtime attestation failed: {failed}")
+        if attestation is None:
+            raise SandboxIsolationError(
+                "runtime attestation missing: the trusted entrypoint did not confirm isolation"
+            )
+        stderr_tail, report, _ = _take_marker(err.tail, "exit", nonce, first=False)
+        if err.total <= limit:
+            stderr_head, _, _ = _take_marker(stderr_head, "exit", nonce, first=False)
+        if report is not None and _report_exit_status(report) != exit_code:
+            report = None  # inconsistent with Docker's view: ignore rather than trust it
+
+        status: Status
+        if timed_out or (report is not None and report.get("deadline")):
             status = "timeout"
-        elif oom:
+        elif killed_by_budget.is_set():
+            status = "output_limit"
+        elif bool(state.get("OOMKilled")) or (
+            report is not None and report.get("signal") == 9 and (report.get("oom_kills") or 0) > 0
+        ):
             status = "oom_killed"
         elif exit_code == 137:
             status = "killed"
@@ -381,14 +569,61 @@ class DockerSandbox:
             status=status,
             exit_code=None if timed_out else (int(exit_code) if exit_code is not None else None),
             stdout=out.text,
-            stderr=err.text,
+            stderr=stderr_head,
+            stdout_tail=out.tail,
+            stderr_tail=stderr_tail,
             stdout_truncated=out.truncated,
             stderr_truncated=err.truncated,
             stdout_bytes_total=out.total,
             stderr_bytes_total=err.total,
             duration_ms=duration_ms,
             container=name,
+            attestation=attestation,
+            exit_report=report,
         )
+
+
+def _take_marker(
+    text: str, kind: str, nonce: str, *, first: bool
+) -> tuple[str, dict[str, Any] | None, Any]:
+    """Extract the entrypoint's ``sandbox-agent:<kind>`` line (first or last line only).
+
+    Returns (text without the marker, payload, failure-payload). Only the first line
+    (attest) or last line (exit) is considered: untrusted code runs strictly after the
+    attest line and is dead before the exit line is written, and both carry a nonce
+    the workload cannot read.
+    """
+    lines = text.splitlines(keepends=True)
+    if not lines:
+        return text, None, None
+    index = 0 if first else len(lines) - 1
+    line = lines[index].rstrip("\n")
+    for marker, is_failure in (
+        (f"sandbox-agent:{kind}-failed ", True),
+        (f"sandbox-agent:{kind} ", False),
+    ):
+        if line.startswith(marker):
+            token, _, payload = line[len(marker) :].partition(" ")
+            if token != nonce:
+                return text, None, None
+            try:
+                data = json.loads(payload)
+            except json.JSONDecodeError:
+                data = {"raw": payload[:200]}
+            rest = "".join(lines[:index] + lines[index + 1 :])
+            return (rest, None, data) if is_failure else (rest, data, None)
+    if first and line.startswith("sandbox-agent:attest-failed"):
+        return text, None, line
+    return text, None, None
+
+
+def _report_exit_status(report: dict[str, Any]) -> int | None:
+    if report.get("deadline"):
+        return 124
+    if report.get("signal") is not None:
+        return 128 + int(report["signal"])
+    code = report.get("exit_code")
+    return int(code) if code is not None else None
 
 
 def _docker_cli_env() -> dict[str, str]:

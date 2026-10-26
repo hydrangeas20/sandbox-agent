@@ -160,6 +160,13 @@ class ToolExecutor:
             )
         except SandboxAgentError as exc:
             return ToolResult(tool=name, ok=False, error_kind="execution_error", error=str(exc))
+        except Exception as exc:
+            return ToolResult(
+                tool=name,
+                ok=False,
+                error_kind="execution_error",
+                error=f"internal error ({type(exc).__name__})",
+            )
         return ToolResult(tool=name, ok=True, output=output)
 
     # ------------------------------------------------------------------ tools
@@ -214,9 +221,12 @@ class ToolExecutor:
     def _tool_run_tests(self, args: RunTestsArgs) -> dict[str, Any]:
         command = build_command(args.command, args.selector)
         outcome = self.ctx.runner.run(self.ctx.workspace.path, command)
-        combined = outcome.stderr + outcome.stdout
-        ran = _RAN.search(combined)
-        failed = _FAILED.search(combined)
+        stderr_tail = outcome.stderr_tail or outcome.stderr
+        stdout_tail = outcome.stdout_tail or outcome.stdout
+        # unittest prints its summary last, so parse the tail window (head as fallback).
+        summary_text = stderr_tail + stdout_tail + outcome.stderr + outcome.stdout
+        ran = _RAN.search(summary_text)
+        failed = _FAILED.search(summary_text)
         passed = outcome.status == "completed" and outcome.exit_code == 0
         return {
             "command": args.command,
@@ -227,16 +237,19 @@ class ToolExecutor:
             "tests_run": int(ran.group(1)) if ran else None,
             "failures": failed.group(1) if failed else None,
             "duration_ms": outcome.duration_ms,
-            "stdout_tail": outcome.stdout[-self.ctx.tail_chars :],
-            "stderr_tail": outcome.stderr[-self.ctx.tail_chars :],
+            "stdout_tail": stdout_tail[-self.ctx.tail_chars :],
+            "stderr_tail": stderr_tail[-self.ctx.tail_chars :],
             "output_truncated": outcome.stdout_truncated or outcome.stderr_truncated,
             "resources": {
                 "container": outcome.container,
                 "timed_out": outcome.status == "timeout",
                 "oom_killed": outcome.status == "oom_killed",
                 "killed": outcome.status == "killed",
+                "output_limited": outcome.status == "output_limit",
                 "stdout_bytes": outcome.stdout_bytes_total,
                 "stderr_bytes": outcome.stderr_bytes_total,
+                "attested": bool(outcome.attestation),
+                "oom_kills": (outcome.exit_report or {}).get("oom_kills"),
             },
         }
 

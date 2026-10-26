@@ -187,7 +187,11 @@ def test_resource_fork_bomb_limited(fixtures_dir: Path, tmp_path: Path) -> None:
 def test_resource_output_flood_truncated(fixtures_dir: Path, tmp_path: Path) -> None:
     out = _run_hostile(fixtures_dir, tmp_path, "tests.test_flood", timeout_s=30.0)
     assert out["output_truncated"] is True
-    assert out["resources"]["stdout_bytes"] > 100 * 1024 * 1024
+    # SR-05: the flood (~128 MiB) is stopped at the total-output budget, not drained.
+    assert out["status"] == "output_limit"
+    assert out["resources"]["output_limited"] is True
+    budget = SandboxConfig().max_total_output_bytes
+    assert out["resources"]["stdout_bytes"] < 4 * budget
     assert len(out["stdout_tail"]) <= 4000
 
 

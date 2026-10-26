@@ -150,12 +150,15 @@ def test_memory_limit_oom_killed(ws: Path) -> None:
         ws,
         "x = bytearray(600 * 1024 * 1024)\nx[::4096] = b'1' * len(x[::4096])\nprint('ALLOCATED')",
     )
-    # The kernel must SIGKILL the process before the allocation completes. Docker sets
-    # OOMKilled reliably on cgroup v1; on some cgroup v2 hosts it reports only exit 137,
-    # which the runner labels "killed" (it never sends SIGKILL itself outside a timeout).
-    assert out.status in ("oom_killed", "killed"), out
+    # Strict again (SECURITY_REVIEW SR-13): Docker's OOMKilled flag is unreliable on
+    # cgroup v2, so the PID 1 entrypoint reports the workload's signal and the cgroup's
+    # oom_kill counter delta. An unrelated SIGKILL is "killed", never "oom_killed"
+    # (see test_sr13_unrelated_sigkill_is_not_called_oom).
+    assert out.status == "oom_killed", out
     assert out.exit_code == 137
     assert "ALLOCATED" not in out.stdout
+    assert out.exit_report is not None
+    assert out.exit_report["oom_kills"] >= 1
 
 
 def test_pids_limit_blocks_fork_bomb(ws: Path) -> None:

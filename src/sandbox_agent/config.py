@@ -57,14 +57,20 @@ class SandboxConfig(_Frozen):
     privileged: Literal[False] = False
     cap_drop: tuple[Literal["ALL"]] = ("ALL",)
     no_new_privileges: Literal[True] = True
-    memory_bytes: int = Field(default=256 * _MiB, ge=16 * _MiB, le=2048 * _MiB)
+    # Floor covers the PID 1 entrypoint (~10 MiB) plus the test interpreter.
+    memory_bytes: int = Field(default=256 * _MiB, ge=64 * _MiB, le=2048 * _MiB)
     cpus: float = Field(default=1.0, ge=0.1, le=4.0)
     pids_limit: int = Field(default=64, ge=8, le=512)
     nofile: int = Field(default=256, ge=32, le=4096)
     fsize_bytes: int = Field(default=32 * _MiB, ge=_MiB, le=512 * _MiB)
     tmpfs_bytes: int = Field(default=64 * _MiB, ge=_MiB, le=512 * _MiB)
     timeout_s: float = Field(default=30.0, gt=0, le=600)
+    #: Retained per stream (head); a further tail window is kept for summaries/markers.
     max_output_bytes: int = Field(default=64 * 1024, ge=1024, le=4 * _MiB)
+    #: Total bytes the container may *emit* (stdout + stderr) before it is killed.
+    max_total_output_bytes: int = Field(default=16 * _MiB, ge=64 * 1024, le=1024 * _MiB)
+    #: Extra wall-clock time the in-container watchdog allows beyond ``timeout_s``.
+    watchdog_grace_s: float = Field(default=5.0, ge=1.0, le=60.0)
     env: tuple[tuple[str, str], ...] = DEFAULT_ENV
 
     @field_validator("image")
@@ -109,6 +115,9 @@ class WorkspaceLimits(_Frozen):
 class PatchLimits(_Frozen):
     max_edits: int = Field(default=20, ge=1, le=200)
     max_text_bytes: int = Field(default=64 * 1024, ge=16, le=_MiB)
+    #: Extra directories to protect, on top of the fixed list in ``policy.py``.
+    #: (Tests, test configuration, policy and eval files are always protected: SR-03.)
+    protected_paths: tuple[str, ...] = ()
 
 
 class AgentBudget(_Frozen):

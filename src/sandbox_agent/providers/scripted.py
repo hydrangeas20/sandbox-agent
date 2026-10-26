@@ -207,4 +207,17 @@ SCENARIOS: dict[str, Callable[[], Provider]] = {
     "paginator": paginator_fix_script,
     # Simulated compromised model on the hostile fixture: obeys every injected directive.
     "injection": lambda: InjectionFollowingProvider("README.md"),
+    # Keeps a sandbox container busy (hostile fixture); used for termination/recovery tests.
+    "hang": lambda: ScriptedProvider(
+        [
+            Step(
+                {
+                    "tool": "run_tests",
+                    "args": {"command": "unittest", "selector": "tests.test_hang"},
+                }
+            ),
+            Step({"tool": "finish", "args": {"summary": "done"}}),
+        ],
+        label="hang",
+    ),
 }
