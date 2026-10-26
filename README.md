@@ -163,7 +163,8 @@ bootstrapped Python 3.12 base. Five consecutive `make demo` runs:
 | One sandboxed `run_tests` (create → verify → run → rm) | 801 ms | 713 ms | 876 ms |
 | Status | 5/5 `succeeded`, fixture unchanged 5/5 | | |
 
-Test suite: **249 passed, 0 failed, 0 skipped** (`make test`), of which 177 in
+Test suite: **249 passed, 0 failed, 0 skipped** (`make test`; also green on
+GitHub Actions with the `python:3.12-slim` image), of which 177 in
 the security suites (`make adversarial-report`). Quality gates: Ruff (incl.
 bandit rules), `ruff format`, `mypy --strict` — all clean.
 
@@ -236,9 +237,10 @@ docs/                       SPEC, THREAT_MODEL, DECISIONS, BUILD_LOG, ADVERSARIA
 - **Narrow toolset.** One allowlisted test runner (stdlib `unittest`); edits
   only modify existing files; no dependency installation.
 - **Local only.** Synchronous, single-flight API without authentication.
-- **CI not yet observed.** The GitHub Actions workflow (including the
-  `python:3.12-slim` image path) is defined but has not run; all results above
-  come from the build host with the bootstrapped base image.
+- **Two environments measured.** Timings above come from the build host
+  (bootstrapped base, cgroup v1). GitHub Actions (`python:3.12-slim`, cgroup v2)
+  passes the full suite and demo; there, an OOM kill can surface as status
+  `killed` (exit 137 without Docker's `OOMKilled` flag).
 - **AppArmor/SELinux are not verified** by the preflight; only seccomp is.
 
 ## Documentation

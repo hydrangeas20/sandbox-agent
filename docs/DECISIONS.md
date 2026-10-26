@@ -139,7 +139,7 @@ smaller attack surface than slim.
 
 **Cost.** It is host-specific (needs `/usr/bin/python3.12`). All local test
 results in `docs/BUILD_LOG.md` were measured on the bootstrapped image; the
-`python:3.12-slim` path is exercised only by CI, which has not yet run.
+`python:3.12-slim` path is exercised by CI, where it now passes.
 
 ## D11. Single-flight API without authentication
 

@@ -81,3 +81,4 @@ Concise per-milestone progress entries. Newest last.
   2. `test_filesystem_restrictions`: probe copied `/usr/bin/python3`, which does not exist in slim (`/usr/local/bin`). Probe now uses `sys.executable` (test bug).
   3. `test_hostile_test_code_is_contained`: the probe flagged `GPG_KEY`, a public CPython signing-key fingerprint set by the official image, because it matched any variable containing "KEY". Probe now checks known credential variable names and secret-shaped values. Planted host secrets are still asserted absent by `test_env_is_minimal`. Image-provided env vars remain allowed by the inspect verifier (see review items).
 - CI failure annotations are now emitted from JUnit XML, because job logs are not downloadable from this build environment.
+- Fourth CI run: `quality` and `sandbox` (slim image: preflight, all Docker/E2E/adversarial tests, offline demo) both **green**.
