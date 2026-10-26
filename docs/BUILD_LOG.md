@@ -73,3 +73,6 @@ Concise per-milestone progress entries. Newest last.
 - Measured (5 runs, build host): task median 1,770 ms (1,572–1,807), sandboxed `run_tests` median 801 ms (713–876), 5/5 `succeeded`, fixture unchanged 5/5.
 - Final verification: `uv sync --frozen` OK; `make ci` (ruff, ruff format --check, mypy --strict, 249 tests) passes; `make adversarial-report` 177/0/0; `make demo` exit 0; no containers or workspaces left behind. The final gate caught a strict-typing regression from the provider-label change, fixed before commit.
 - Not verified here: GitHub Actions (has not run) and the `python:3.12-slim` image path (Docker Hub blocked on this host).
+
+## Post-M10 — First CI run
+- The first GitHub Actions run failed in `astral-sh/setup-uv`: its cache-dependency glob walked the repository and followed the hostile fixture's `etc_link -> /etc` symlink (`EACCES … etc_link/credstore`). A small real-world example of T4: third-party tooling following attacker-controlled symlinks. Fixed by disabling the uv cache in CI (no repository walk); the fixture is unchanged.

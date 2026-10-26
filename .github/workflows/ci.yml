@@ -16,6 +16,9 @@ jobs:
       - uses: astral-sh/setup-uv@v5
         with:
           python-version: "3.12"
+          # The hostile fixture contains `etc_link -> /etc`; the cache glob walks the
+          # repo and follows it (EACCES on /etc/credstore). Cache off; no repo walk.
+          enable-cache: false
       - run: uv sync --frozen
       - run: uv run ruff check .
       - run: uv run ruff format --check .
@@ -33,6 +36,9 @@ jobs:
       - uses: astral-sh/setup-uv@v5
         with:
           python-version: "3.12"
+          # The hostile fixture contains `etc_link -> /etc`; the cache glob walks the
+          # repo and follows it (EACCES on /etc/credstore). Cache off; no repo walk.
+          enable-cache: false
       - run: uv sync --frozen
       - name: Build sandbox image
         run: docker build --build-arg BASE_IMAGE=python:3.12-slim -t sandbox-agent-runner:0.1 sandbox
