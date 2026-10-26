@@ -36,5 +36,9 @@ class ProviderError(SandboxAgentError):
     """The LLM provider failed or returned output that could not be validated."""
 
 
+class ProviderBudgetExceeded(ProviderError):  # noqa: N818 - domain term
+    """A model-call, token or cost budget would be exceeded; the task must stop."""
+
+
 class FixtureError(SandboxAgentError):
     """The requested fixture repository is unknown, invalid or was modified."""

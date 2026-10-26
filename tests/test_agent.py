@@ -249,8 +249,8 @@ def test_anthropic_requires_key(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_anthropic_request_and_parsing_with_stub_transport() -> None:
     captured: dict[str, Any] = {}
 
-    def transport(body: dict[str, Any], headers: dict[str, str]) -> dict[str, Any]:
-        captured["body"], captured["headers"] = body, headers
+    def transport(body: dict[str, Any], headers: dict[str, str], timeout: float) -> dict[str, Any]:
+        captured["body"], captured["headers"], captured["timeout"] = body, headers, timeout
         return {
             "content": [
                 {"type": "text", "text": "Run tests first."},
@@ -274,6 +274,7 @@ def test_anthropic_request_and_parsing_with_stub_transport() -> None:
     assert captured["headers"]["x-api-key"] == "sk-ant-test-KEY"
     assert {tool["name"] for tool in captured["body"]["tools"]} >= {"run_tests", "apply_patch"}
     assert "UNTRUSTED TOOL OUTPUT" in body
+    assert captured["timeout"] == 60.0
     assert captured["body"]["messages"][1]["content"][0]["type"] == "tool_use"
 
 

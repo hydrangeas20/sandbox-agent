@@ -16,7 +16,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, ValidationError
 
 from sandbox_agent.config import AgentBudget
-from sandbox_agent.errors import ProviderError
+from sandbox_agent.errors import ProviderBudgetExceeded, ProviderError
 from sandbox_agent.providers.base import AgentAction, Provider, Transcript, Turn
 from sandbox_agent.tools import ToolExecutor, ToolResult
 from sandbox_agent.trace import Tracer
@@ -105,12 +105,16 @@ class AgentController:
             try:
                 raw = self.provider.next_action(transcript)
                 action = AgentAction.model_validate(raw)
+            except ProviderBudgetExceeded as exc:
+                self._emit_model_call(iterations)
+                return done("budget_exhausted", f"model budget: {exc}")
             except (ProviderError, ValidationError) as exc:
                 message = _describe_invalid(exc)
             except Exception as exc:
                 # Only the exception *type* is recorded: provider exception text can echo
                 # request data (headers, keys), so it is never traced or shown to the model.
                 message = f"provider raised {type(exc).__name__}"
+            self._emit_model_call(iterations)
             if action is None:
                 invalid += 1
                 self.tracer.emit(
@@ -182,6 +186,13 @@ class AgentController:
                     return done("policy_aborted", f"{denials} policy denials")
             elif result.error_kind == "execution_error" and action.tool == "run_tests":
                 return done("sandbox_error", result.error or "sandbox failure")
+
+    def _emit_model_call(self, iteration: int) -> None:
+        """Trace per-call usage for real providers (token counts, cost, latency)."""
+        call = getattr(self.provider, "last_call", None)
+        if isinstance(call, dict):
+            self.tracer.emit("model_call", iteration=iteration, **call)
+            self.provider.last_call = None  # type: ignore[attr-defined]
 
     def _observe(
         self, transcript: Transcript, result: ToolResult, call_id: str, iteration: int, ms: int

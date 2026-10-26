@@ -11,7 +11,13 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from sandbox_agent.agent import AgentController, AgentRunResult, TaskStatus
-from sandbox_agent.config import AgentBudget, SandboxConfig, Settings, WorkspaceLimits
+from sandbox_agent.config import (
+    AgentBudget,
+    ModelBudget,
+    SandboxConfig,
+    Settings,
+    WorkspaceLimits,
+)
 from sandbox_agent.diffing import diff_policy_violations, unified_diff
 from sandbox_agent.errors import (
     FixtureError,
@@ -38,6 +44,8 @@ class TaskRequest(BaseModel):
     provider: ProviderName = "scripted"
     scenario: str | None = Field(default=None, max_length=64)
     budget: AgentBudget = Field(default_factory=AgentBudget)
+    model: str | None = Field(default=None, max_length=64, pattern=r"^[a-z0-9][a-z0-9.\-]*$")
+    model_budget: ModelBudget = Field(default_factory=ModelBudget)
 
 
 class TestSummary(BaseModel):
@@ -66,6 +74,8 @@ class TaskResult(BaseModel):
     fixture_sha256_after: str
     fixture_unchanged: bool
     duration_ms: int
+    #: Real-model usage (tokens, estimated cost, latency); ``None`` for scripted runs.
+    model_usage: dict[str, Any] | None = None
     trace: list[dict[str, Any]]
 
 
@@ -81,9 +91,12 @@ def default_provider_factory(settings: Settings) -> ProviderFactory:
             return SCENARIOS[scenario]()
         if settings.offline:
             raise ProviderError("offline mode: set SANDBOX_AGENT_OFFLINE=0 to use a real provider")
-        from sandbox_agent.providers.anthropic import AnthropicProvider  # noqa: PLC0415
+        from sandbox_agent.providers.anthropic import (  # noqa: PLC0415
+            DEFAULT_MODEL,
+            AnthropicProvider,
+        )
 
-        return AnthropicProvider()
+        return AnthropicProvider(model=req.model or DEFAULT_MODEL, budget=req.model_budget)
 
     return make
 
@@ -118,6 +131,7 @@ def run_task(  # noqa: PLR0915 - linear orchestration with explicit fail-closed 
     status: TaskStatus
     reason: str
     provider_label: str = req.provider
+    provider: Provider | None = None
     diff: str = ""
     changed: list[str] = []
     try:
@@ -171,6 +185,7 @@ def run_task(  # noqa: PLR0915 - linear orchestration with explicit fail-closed 
         fixture_sha256_after=after,
         fixture_unchanged=unchanged,
         duration_ms=int((time.monotonic() - started) * 1000),
+        model_usage=_model_usage(provider),
         trace=[],
     )
     tracer.emit(
@@ -181,8 +196,17 @@ def run_task(  # noqa: PLR0915 - linear orchestration with explicit fail-closed 
         fixture_unchanged=unchanged,
         duration_ms=result.duration_ms,
         resources=_resource_summary(tracer.events),
+        model_usage=result.model_usage,
     )
     return result.model_copy(update={"trace": tracer.redacted_events()})
+
+
+def _model_usage(provider: Provider | None) -> dict[str, Any] | None:
+    summary = getattr(provider, "usage_summary", None)
+    if not callable(summary):
+        return None
+    value = summary()
+    return value if isinstance(value, dict) else None
 
 
 def _resource_summary(events: list[dict[str, Any]]) -> dict[str, Any]:

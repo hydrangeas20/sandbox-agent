@@ -17,7 +17,7 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-from sandbox_agent.config import SandboxConfig, Settings
+from sandbox_agent.config import ModelBudget, SandboxConfig, Settings
 from sandbox_agent.errors import SandboxAgentError
 from sandbox_agent.sandbox import DockerSandbox
 from sandbox_agent.service import TaskRequest, TaskResult, run_task
@@ -47,6 +47,12 @@ def _print_result(result: TaskResult, trace_path: Path | None) -> None:
     print(f"files changed  {', '.join(result.files_changed) or '(none)'}")
     print(f"fixture intact {result.fixture_unchanged}  sha256={result.fixture_sha256_after[:16]}…")
     print(f"duration       {result.duration_ms} ms")
+    if result.model_usage:
+        u = result.model_usage
+        print(
+            f"model usage    {u['model']}: calls={u['calls']} tokens={u['total_tokens']} "
+            f"est_cost=${u['cost_usd']:.4f} (cap ${u['budget']['max_cost_usd']:.2f})"
+        )
     if trace_path:
         print(f"trace          {trace_path}  ({len(result.trace)} events)")
     print()
@@ -73,8 +79,23 @@ def _write_trace(result: TaskResult, settings: Settings, out: str | None) -> Pat
 
 
 def cmd_run(args: argparse.Namespace, settings: Settings) -> int:
+    model_budget = ModelBudget(
+        **{
+            k: v
+            for k, v in {
+                "max_cost_usd": getattr(args, "max_cost_usd", None),
+                "max_model_calls": getattr(args, "max_model_calls", None),
+            }.items()
+            if v is not None
+        }
+    )
     req = TaskRequest(
-        fixture=args.fixture, task=args.task, provider=args.provider, scenario=args.scenario
+        fixture=args.fixture,
+        task=args.task,
+        provider=args.provider,
+        scenario=args.scenario,
+        model=getattr(args, "model", None),
+        model_budget=model_budget,
     )
     sandbox_config = SandboxConfig(timeout_s=args.timeout) if args.timeout else None
     result = run_task(req, settings, sandbox_config=sandbox_config)
@@ -128,6 +149,9 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--json", action="store_true", help="print the full TaskResult as JSON")
     run.add_argument("--trace-out", default=None, help="trace JSONL path (default: runs/)")
     run.add_argument("--timeout", type=float, default=None, help="per-command sandbox timeout (s)")
+    run.add_argument("--model", default=None, help="model id for --provider anthropic")
+    run.add_argument("--max-cost-usd", type=float, default=None, help="per-task cost cap")
+    run.add_argument("--max-model-calls", type=int, default=None, help="per-task model calls")
     run.set_defaults(func=cmd_run)
 
     demo = sub.add_parser("demo", help="one-command offline demo on the paginator fixture")

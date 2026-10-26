@@ -131,6 +131,21 @@ class AgentBudget(_Frozen):
     max_observation_chars: int = Field(default=16_000, ge=256, le=200_000)
 
 
+class ModelBudget(_Frozen):
+    """Hard limits on real-model usage for one task, enforced by the provider adapter.
+
+    The cost check runs *before* each call against a worst-case estimate (input size
+    estimated conservatively from the request bytes, plus the full ``max_output_tokens``),
+    so a task cannot exceed ``max_cost_usd`` by more than estimation error.
+    """
+
+    max_model_calls: int = Field(default=12, ge=1, le=100)
+    max_output_tokens_per_call: int = Field(default=1024, ge=64, le=8192)
+    max_total_tokens: int = Field(default=150_000, ge=1_000, le=2_000_000)
+    max_cost_usd: float = Field(default=0.50, gt=0, le=10.0)
+    request_timeout_s: float = Field(default=60.0, gt=0, le=300)
+
+
 class Settings(_Frozen):
     """Process-level paths and switches, resolved once at startup."""
 
