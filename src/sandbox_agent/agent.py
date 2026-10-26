@@ -100,12 +100,19 @@ class AgentController:
             iterations += 1
 
             t0 = self.clock()
+            action: AgentAction | None = None
+            message = ""
             try:
                 raw = self.provider.next_action(transcript)
                 action = AgentAction.model_validate(raw)
             except (ProviderError, ValidationError) as exc:
-                invalid += 1
                 message = _describe_invalid(exc)
+            except Exception as exc:
+                # Only the exception *type* is recorded: provider exception text can echo
+                # request data (headers, keys), so it is never traced or shown to the model.
+                message = f"provider raised {type(exc).__name__}"
+            if action is None:
+                invalid += 1
                 self.tracer.emit(
                     "invalid_provider_output",
                     iteration=iterations,
@@ -212,6 +219,8 @@ def _describe_invalid(exc: Exception) -> str:
     if isinstance(exc, ValidationError):
         errs = exc.errors()[:3]
         return "; ".join(f"{'.'.join(map(str, e['loc'])) or '<root>'}: {e['msg']}" for e in errs)
+    # ProviderError messages are composed by our adapters (status codes, exception
+    # type names); they are bounded and still pass through trace redaction.
     return str(exc)[:500]
 
 
