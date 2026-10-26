@@ -22,14 +22,14 @@ def settings(fixtures_dir: Path, tmp_path: Path) -> Settings:
 
 
 def test_healthz_and_fixtures(settings: Settings) -> None:
-    client = TestClient(create_app(settings))
+    client = TestClient(create_app(settings), base_url="http://127.0.0.1")
     assert client.get("/healthz").json()["status"] == "ok"
     assert "paginator" in client.get("/fixtures").json()["fixtures"]
 
 
 @pytest.mark.parametrize("fixture", ["../etc", "/etc", "nope", "Paginator"])
 def test_api_rejects_unknown_or_path_fixtures(settings: Settings, fixture: str) -> None:
-    client = TestClient(create_app(settings))
+    client = TestClient(create_app(settings), base_url="http://127.0.0.1")
     resp = client.post("/tasks", json={"fixture": fixture, "task": "x"})
     assert resp.status_code == 404
 
@@ -45,7 +45,7 @@ def test_api_rejects_unknown_or_path_fixtures(settings: Settings, fixture: str) 
     ],
 )
 def test_api_validates_requests(settings: Settings, body: dict[str, object]) -> None:
-    client = TestClient(create_app(settings))
+    client = TestClient(create_app(settings), base_url="http://127.0.0.1")
     assert client.post("/tasks", json=body).status_code == 422
 
 

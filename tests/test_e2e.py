@@ -77,7 +77,7 @@ def test_agent_fixes_real_bug_and_fixture_is_untouched(
 
 
 def test_api_runs_task(settings: Settings) -> None:
-    client = TestClient(create_app(settings))
+    client = TestClient(create_app(settings), base_url="http://127.0.0.1")
     resp = client.post("/tasks", json={"fixture": "paginator", "task": "fix pagination"})
     assert resp.status_code == 200
     body = resp.json()

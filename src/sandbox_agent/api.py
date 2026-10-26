@@ -9,6 +9,7 @@ from __future__ import annotations
 import threading
 
 from fastapi import FastAPI, HTTPException
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from sandbox_agent import __version__
 from sandbox_agent.config import Settings
@@ -16,10 +17,17 @@ from sandbox_agent.errors import FixtureError
 from sandbox_agent.service import TaskRequest, TaskResult, run_task
 from sandbox_agent.workspace import FixtureRegistry
 
+#: The API binds to loopback; requiring a loopback Host header blocks DNS-rebinding
+#: attacks where a web page resolves its own hostname to 127.0.0.1 (SR-11).
+LOOPBACK_HOSTS = ("127.0.0.1", "localhost")
 
-def create_app(settings: Settings | None = None) -> FastAPI:
+
+def create_app(
+    settings: Settings | None = None, allowed_hosts: tuple[str, ...] = LOOPBACK_HOSTS
+) -> FastAPI:
     cfg = settings or Settings.from_env()
     app = FastAPI(title="Sandbox Coding Agent", version=__version__)
+    app.add_middleware(TrustedHostMiddleware, allowed_hosts=list(allowed_hosts))
     busy = threading.Lock()
 
     @app.get("/healthz")
