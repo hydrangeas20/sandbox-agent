@@ -65,3 +65,11 @@ Concise per-milestone progress entries. Newest last.
 - Mutation check (not committed): disabling the symlink check in `Workspace.resolve` and the selector check in `policy.py` made 15 tests fail (`test_injection_following_provider_is_contained`, symlink/selector pipeline cases, workspace symlink tests); restoring them made all pass. The write path still refused to write *through* links even with the resolve check disabled (atomic `os.replace` + `lstat` re-check), i.e. defence in depth held.
 - `scripts/adversarial_report.py` / `make adversarial-report` regenerates `docs/ADVERSARIAL_REPORT.md` from JUnit XML (skips reported as SKIPPED). Current: 177 pass, 0 fail, 0 skipped across security suites. Full suite 249/249.
 - No test was weakened. Two test-data fixes during M8 (an AWS key-id sample one character short of the real format; a spoofing test that passed a reserved Python keyword) are recorded here for transparency.
+
+## M10 — Portfolio demonstration
+- Goal: a reviewer can understand, reproduce and judge the project from the README.
+- `README.md`: Mermaid architecture with trust boundaries, threat → mitigation → test table, exact setup (`make install`, `make image`, `preflight`, `make demo`), captured demo and injection-containment output, measured results, usage/API/commands, unverified real-provider instructions, layout, limitations. `docs/DECISIONS.md`: 11 trade-off records. MIT `LICENSE` added to match `pyproject.toml` (flagged for review).
+- Results report the concrete provider (`injection-following`) instead of the request's provider family.
+- Measured (5 runs, build host): task median 1,770 ms (1,572–1,807), sandboxed `run_tests` median 801 ms (713–876), 5/5 `succeeded`, fixture unchanged 5/5.
+- Final verification: `uv sync --frozen` OK; `make ci` (ruff, ruff format --check, mypy --strict, 249 tests) passes; `make adversarial-report` 177/0/0; `make demo` exit 0; no containers or workspaces left behind. The final gate caught a strict-typing regression from the provider-label change, fixed before commit.
+- Not verified here: GitHub Actions (has not run) and the `python:3.12-slim` image path (Docker Hub blocked on this host).

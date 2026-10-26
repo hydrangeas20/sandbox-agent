@@ -115,10 +115,12 @@ def run_task(
     agent_result: AgentRunResult | None = None
     status: TaskStatus
     reason: str
+    provider_label: str = req.provider
     diff: str = ""
     changed: list[str] = []
     try:
         provider = factory(req)
+        provider_label = provider.name
         secrets = getattr(provider, "secret_values", ())
         tracer.register_secrets(*secrets)
         with Workspace.create(fixture_dir, workspace_limits or WorkspaceLimits()) as ws:
@@ -147,7 +149,7 @@ def run_task(
     result = TaskResult(
         task_id=task_id,
         fixture=req.fixture,
-        provider=req.provider,
+        provider=provider_label,
         status=status,
         reason=reason,
         summary=agent_result.summary if agent_result else None,
