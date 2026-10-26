@@ -157,3 +157,15 @@ Concise per-milestone progress entries. Newest last.
   - 4 of 6 fail before the fix. All pass 20/20 idle and 20/20 under full CPU load.
 - After the fix: exactly 16.0 MiB reached the host in every instrumented run, idle and loaded.
 - Offline: `make ci` 413 passed; security suites 289/0/0; demo 5/5 succeeded.
+
+## Live smoke: uv pinned and checksum-verified (2026-10-26)
+- `live-smoke.yml`: both setup-uv steps now pin `version: "0.11.32"` and `checksum:` (sha256 of `uv-x86_64-unknown-linux-gnu.tar.gz`).
+  - The setup action was already pinned to an immutable SHA, `d4b2f3b6…`, which is setup-uv v5.4.2 (confirmed against the upstream tags).
+  - v5.4.2's built-in checksums stop at uv 0.6.14, so an unpinned or newer uv would have been installed without verification.
+- Verification:
+  - The checksum matches both the release's `.sha256` asset and a sha256 of the downloaded tarball, which reports `uv 0.11.32`.
+  - Running the pinned action locally with these inputs installed 0.11.32. With a wrong checksum it failed before adding anything to PATH.
+- Tests:
+  - `test_uv_version_and_checksum_pinned`, which failed before the change.
+  - `test_environment_and_secret_scope`: only `smoke` uses `sandbox-agent-eval`, and `ANTHROPIC_API_KEY` is the only secret referenced.
+- Checks: actionlint clean; `make ci` 415 passed; `make test-security` 177 passed.

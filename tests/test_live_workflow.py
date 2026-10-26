@@ -110,6 +110,38 @@ def test_actions_pinned_to_full_commit_shas(wf: dict[str, Any]) -> None:
         assert re.fullmatch(r"[\w.-]+/[\w.-]+@[0-9a-f]{40}", ref), ref
 
 
+UV_VERSION = "0.11.32"  # the release that generated uv.lock and ran local verification
+# sha256 of uv-x86_64-unknown-linux-gnu.tar.gz for UV_VERSION, from the release's
+# .sha256 asset and recomputed from the downloaded tarball.
+UV_SHA256 = "aab924fd522efd06f1c5f3b93a243864fc453132c94b2dc49f1371b528a4b967"
+
+
+def test_uv_version_and_checksum_pinned(wf: dict[str, Any]) -> None:
+    """setup-uv must install one exact uv release and verify it against a pinned sha256.
+
+    The pinned setup-uv (v5.4.2) only knows checksums up to uv 0.6.14; without an
+    explicit `checksum`, a newer release would be installed unverified.
+    """
+    setups = [
+        s for j in wf["jobs"].values() for s in j["steps"] if "/setup-uv@" in s.get("uses", "")
+    ]
+    assert len(setups) == 2  # one per job
+    for step in setups:
+        assert step["uses"] == "astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86"
+        assert str(step["with"]["version"]) == UV_VERSION
+        assert step["with"]["checksum"] == UV_SHA256
+        assert "github-token" not in step["with"]
+        assert step["with"]["enable-cache"] is False
+
+
+def test_environment_and_secret_scope(wf: dict[str, Any]) -> None:
+    """Only the smoke job uses the protected environment; it is the only secret referenced."""
+    envs = {name: j.get("environment") for name, j in wf["jobs"].items()}
+    assert envs == {"verify": None, "smoke": "sandbox-agent-eval"}
+    assert set(re.findall(r"secrets\.(\w+)", WORKFLOW.read_text())) == {"ANTHROPIC_API_KEY"}
+    assert "secrets." not in json.dumps(wf["jobs"]["verify"])
+
+
 def test_secret_reaches_only_three_steps(wf: dict[str, Any], job: dict[str, Any]) -> None:
     assert "secrets." not in json.dumps(wf.get("env", {}))
     assert "secrets." not in json.dumps(job.get("env", {}))

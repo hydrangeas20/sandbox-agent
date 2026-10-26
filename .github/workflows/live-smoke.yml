@@ -11,7 +11,8 @@
 #   `smoke` starts, i.e. after `verify` has passed). That environment policy is the
 #   control that also covers a modified copy of this file on another branch.
 # - Pinning: the operator passes the exact reviewed commit SHA; both jobs refuse to run
-#   if main has moved. All actions are pinned to full commit SHAs.
+#   if main has moved. All actions are pinned to full commit SHAs, and uv is pinned to
+#   one release whose download is checked against a pinned sha256.
 # - In `smoke`, the secret reaches three steps only (presence check, paid run, artifact
 #   scan), after an integrity gate (step-environment fingerprint, clean tree, fresh
 #   cache-free venv). The controller passes no host environment to Docker; each sandbox
@@ -67,8 +68,13 @@ jobs:
           ref: ${{ github.sha }}
           persist-credentials: false
 
-      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
         with:
+          # Exact uv release, verified against the release's sha256 for
+          # uv-x86_64-unknown-linux-gnu.tar.gz. setup-uv v5.4.2 has no built-in
+          # checksum for this release, so without `checksum` it would not verify it.
+          version: "0.11.32"
+          checksum: "aab924fd522efd06f1c5f3b93a243864fc453132c94b2dc49f1371b528a4b967"
           python-version: "3.12"
           enable-cache: false
 
@@ -126,8 +132,13 @@ jobs:
           ref: ${{ github.sha }}
           persist-credentials: false
 
-      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
         with:
+          # Exact uv release, verified against the release's sha256 for
+          # uv-x86_64-unknown-linux-gnu.tar.gz. setup-uv v5.4.2 has no built-in
+          # checksum for this release, so without `checksum` it would not verify it.
+          version: "0.11.32"
+          checksum: "aab924fd522efd06f1c5f3b93a243864fc453132c94b2dc49f1371b528a4b967"
           python-version: "3.12"
           enable-cache: false
 

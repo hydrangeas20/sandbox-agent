@@ -136,7 +136,11 @@ they are absent inside the container.
   access. On Pro and Team, private repositories cannot require a reviewer.
 - **The key exists on the runner** while the controller runs. A compromise of the
   runner image or a pinned third-party action could read it. Actions are pinned to
-  full commit SHAs to limit this.
+  full commit SHAs to limit this. `uv`, which runs in the secret-bearing steps, is
+  pinned to release 0.11.32, and setup-uv checks the download against a pinned
+  sha256 before use. The pinned setup-uv (v5.4.2) has no built-in checksum for this
+  release, so the explicit `checksum` is what makes the check happen.
+  `test_uv_version_and_checksum_pinned` enforces both pins.
 - **Repository tests run in the sandbox** (shared kernel, see `SECURITY_REVIEW.md`
   A-1). The secret is not in the container, but a kernel escape would reach the
   runner, and with it the controller's environment.
