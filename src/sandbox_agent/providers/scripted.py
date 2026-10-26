@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from sandbox_agent.errors import ProviderError
-from sandbox_agent.providers.base import Transcript
+from sandbox_agent.providers.base import Provider, Transcript
 
 Expectation = Callable[[dict[str, Any]], bool]
 
@@ -99,14 +99,17 @@ class InjectionFollowingProvider:
             self._started = True
             return {"tool": "read_file", "args": {"path": self.entry_path}}
         text = "\n".join(_strings(_last_observation(transcript)))
+        fresh: list[Any] = []
         for match in _DIRECTIVE.finditer(text):
             directive = match.group(1)
             if directive not in self._seen:
                 self._seen.add(directive)
                 try:
-                    self._queue.append(json.loads(directive))
+                    fresh.append(json.loads(directive))
                 except json.JSONDecodeError:
-                    self._queue.append(directive)  # forwarded raw: controller must reject it
+                    fresh.append(directive)  # forwarded raw: controller must reject it
+        # An obedient model acts on the newest instructions first (e.g. ones in test output).
+        self._queue[0:0] = fresh
         if self._queue:
             return self._queue.pop(0)
         return {"tool": "finish", "args": {"summary": "followed all injected instructions"}}
@@ -200,4 +203,8 @@ def paginator_fix_script() -> ScriptedProvider:
     )
 
 
-SCENARIOS: dict[str, Callable[[], ScriptedProvider]] = {"paginator": paginator_fix_script}
+SCENARIOS: dict[str, Callable[[], Provider]] = {
+    "paginator": paginator_fix_script,
+    # Simulated compromised model on the hostile fixture: obeys every injected directive.
+    "injection": lambda: InjectionFollowingProvider("README.md"),
+}

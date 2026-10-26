@@ -4,7 +4,7 @@ IMAGE ?= sandbox-agent-runner:0.1
 BASE_IMAGE ?= python:3.12-slim
 export SANDBOX_AGENT_OFFLINE ?= 1
 
-.PHONY: install lint format typecheck test test-unit test-docker test-security image image-offline-base demo ci clean
+.PHONY: install lint format typecheck test test-unit test-docker test-security adversarial-report image image-offline-base demo ci clean
 
 install:
 	$(UV) sync --frozen
@@ -26,8 +26,11 @@ test-unit:
 test-docker:
 	$(UV) run pytest -m docker
 
+adversarial-report:
+	$(UV) run python scripts/adversarial_report.py
+
 test-security:
-	$(UV) run pytest tests/test_adversarial.py tests/test_sandbox_docker.py tests/test_workspace.py -v
+	$(UV) run pytest tests/test_adversarial.py tests/test_sandbox_docker.py tests/test_sandbox_args.py tests/test_workspace.py tests/test_workspace_docker.py tests/test_patch.py tests/test_tools.py tests/test_trace.py -v
 
 test:
 	$(UV) run pytest
