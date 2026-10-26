@@ -113,3 +113,18 @@ Concise per-milestone progress entries. Newest last.
 - Replaced the post-run ledger record (spend from an interrupted run was lost) with per-request reservations. The worst-case estimate is reserved under `flock` and written atomically (temp file + fsync + rename + directory fsync) **before** the request is sent, and is refused if it would exceed the experiment budget. It is settled afterwards with the cost from `usage`, the worst case for ambiguous failures, or 0 for pre-processing rejections. Interrupted, killed or crashed requests stay reserved and keep counting. A corrupt ledger fails closed. Retries reserve against the same budget. The ledger travels in `Settings`, so the CLI, eval and API paths all require it for real-model use. New `sandbox-agent ledger` command.
 - 12 failing-first tests (12/12 failed before): reservation on disk before send, settlement of success and failures, KeyboardInterrupt, real SIGKILL of a subprocess mid-request (the orphaned reservation still blocks overspend), retries, per-request experiment cap, failed atomic write keeps the previous ledger, corrupt ledger, 5 concurrent writers × 10 requests with no lost updates, and refusal of a real provider without a ledger.
 - Offline checks: `make ci` 382 passed; security suites 285/0/0; demo succeeded. No paid calls.
+
+## Live smoke workflow (2026-10-26, not executed)
+- `.github/workflows/live-smoke.yml`:
+  - Trigger: `workflow_dispatch` only. The job refuses any repository other than this one, any ref other than `refs/heads/main`, a SHA other than the operator-supplied reviewed SHA, and a missing confirmation phrase.
+  - Secret: environment `sandbox-agent-eval`. The secret reaches only three steps: the presence check (fails closed), the paid run (controller only) and the artifact scan.
+  - Hardening: actions pinned to full SHAs; `contents: read`; serialised by a concurrency group.
+  - Run: exactly one Haiku 5.5 paginator task with `--max-cost-usd 0.50 --experiment-budget-usd 0.50`.
+  - Artifacts are uploaded only after a scan for the key and its encodings.
+- Helpers: `scripts/check_artifacts_for_secret.py` and `scripts/smoke_summary.py`. 17 tests in `tests/test_live_workflow.py` cover the workflow's static security properties and the scripts with a fake key. `actionlint` is clean.
+- Verified GitHub constraints that need the owner:
+  - `main` is unprotected and contains only the root commit, so the workflow cannot be dispatched until the code is merged.
+  - In a private repository, environment secrets need Pro, Team or Enterprise, and required reviewers are unavailable on Free, Pro and Team.
+  - Environments and branch protection cannot be configured from this session.
+- The ledger does not persist across Actions runs; cross-run limits must come from the Console. See `docs/LIVE_SMOKE.md`.
+- Offline: `make ci` 399 passed; security suites 285/0/0; demo succeeded; scripted eval 8/8.

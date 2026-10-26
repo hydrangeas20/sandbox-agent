@@ -1,0 +1,149 @@
+# Paid, manually triggered real-model smoke test: one paginator task on Claude Haiku 5.5.
+#
+# Security model (see docs/LIVE_SMOKE.md for the one-time GitHub setup):
+# - Trigger: workflow_dispatch only. GitHub only offers it for workflows on the default
+#   branch, and this job additionally refuses any ref other than refs/heads/main.
+# - Secret: ANTHROPIC_API_KEY lives only in the `sandbox-agent-eval` environment. The
+#   environment MUST restrict deployments to `main` and require a reviewer; that is the
+#   control that also covers a modified copy of this file on another branch.
+# - Pinning: the operator passes the exact reviewed commit SHA; the job refuses to run if
+#   main has moved. All actions are pinned to full commit SHAs.
+# - The secret is exposed only to three steps (presence check, smoke run, artifact scan).
+#   The controller passes no host environment to Docker, and every sandbox container's
+#   environment is verified (inspect) and attested (PID 1) to be exactly the six
+#   configured variables. Artifacts are scanned for the key before upload.
+name: live-smoke (manual, paid)
+
+on:
+  workflow_dispatch:
+    inputs:
+      expected_sha:
+        description: "Full SHA of the reviewed commit on main to run (the job refuses any other)"
+        required: true
+        type: string
+      confirm:
+        description: "Type RUN-PAID-HAIKU-SMOKE to confirm one paid request budget of <= $0.50"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sandbox-agent-eval
+  cancel-in-progress: false
+
+jobs:
+  smoke:
+    name: paginator smoke test (claude-haiku-5-5)
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      github.repository == 'hydrangeas20/sandbox-agent' &&
+      github.ref == 'refs/heads/main' &&
+      inputs.expected_sha == github.sha &&
+      inputs.confirm == 'RUN-PAID-HAIKU-SMOKE'
+    runs-on: ubuntu-24.04
+    environment: sandbox-agent-eval
+    timeout-minutes: 20
+    env:
+      SANDBOX_AGENT_RUNS: runs
+      SANDBOX_AGENT_REQUIRE_DOCKER: "1"
+    steps:
+      - name: Guard (no secrets)
+        env:
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+          ACTUAL_SHA: ${{ github.sha }}
+          REF: ${{ github.ref }}
+        run: |
+          set -euo pipefail
+          [[ "$REF" == "refs/heads/main" ]] || { echo "::error::refusing ref $REF"; exit 1; }
+          [[ "$EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::expected_sha must be a full 40-hex SHA"; exit 1; }
+          [[ "$EXPECTED_SHA" == "$ACTUAL_SHA" ]] || { echo "::error::main is at $ACTUAL_SHA, not the reviewed $EXPECTED_SHA"; exit 1; }
+
+      - name: Require the API key secret
+        id: check-secret
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          if [ -z "${ANTHROPIC_API_KEY:-}" ]; then
+            echo "::error::ANTHROPIC_API_KEY is not set in the sandbox-agent-eval environment; refusing to run"
+            exit 1
+          fi
+          echo "API key secret is present (value not shown)."
+
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
+        with:
+          python-version: "3.12"
+          enable-cache: false
+
+      - name: Install (no secrets)
+        run: uv sync --frozen
+
+      - name: Offline checks (no secrets)
+        run: uv run pytest -q -m "not docker"
+
+      - name: Build sandbox image (no secrets)
+        run: docker build --build-arg BASE_IMAGE=python:3.12-slim -t sandbox-agent-runner:0.1 sandbox
+
+      - name: Sandbox isolation checks (no secrets)
+        run: |
+          uv run sandbox-agent preflight
+          uv run pytest -q tests/test_sandbox_docker.py tests/test_security_review_docker.py \
+            -k "network or privilege or env or pinned_profile or attestation or pid1"
+
+      - name: Paid smoke test (secret available to the controller only)
+        id: smoke
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          SANDBOX_AGENT_OFFLINE: "0"
+        run: |
+          set +e
+          mkdir -p runs
+          uv run sandbox-agent run \
+            --provider anthropic \
+            --model claude-haiku-5-5 \
+            --fixture paginator \
+            --task "paginate() returns the wrong items: page 1 of 25 items with per_page=10 starts at item 11. Find and fix the bug, then make sure the test suite passes." \
+            --max-cost-usd 0.50 \
+            --max-model-calls 12 \
+            --experiment-budget-usd 0.50 \
+            --ledger runs/spend-ledger.json \
+            --trace-out runs/smoke.trace.jsonl \
+            --json > runs/smoke-result.json
+          code=$?
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          echo "controller exit code: $code (0 = succeeded, 1 = task did not succeed, 2 = error)"
+          exit 0
+
+      - name: Scan artifacts for the credential
+        id: leakcheck
+        if: always() && steps.check-secret.outcome == 'success'
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          mkdir -p runs
+          uv run python scripts/check_artifacts_for_secret.py runs
+
+      - name: Job summary (no secrets)
+        if: always()
+        run: uv run python scripts/smoke_summary.py runs/smoke-result.json runs/spend-ledger.json >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload redacted artifacts
+        if: always() && steps.leakcheck.outcome == 'success'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: live-smoke-${{ github.run_id }}
+          path: runs/
+          retention-days: 14
+          if-no-files-found: warn
+
+      - name: Fail on controller error
+        if: steps.smoke.outputs.exit_code != '0' && steps.smoke.outputs.exit_code != '1'
+        run: |
+          echo "::error::controller exited with ${{ steps.smoke.outputs.exit_code }}"
+          exit 1

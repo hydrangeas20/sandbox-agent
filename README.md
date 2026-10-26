@@ -319,6 +319,7 @@ docs/                       SPEC, THREAT_MODEL, DECISIONS, SECURITY_REVIEW, BUIL
 - [`docs/BUILD_LOG.md`](docs/BUILD_LOG.md) — milestone-by-milestone progress
 - [`docs/ADVERSARIAL_REPORT.md`](docs/ADVERSARIAL_REPORT.md) — generated security results
 - [`docs/SECURITY_REVIEW.md`](docs/SECURITY_REVIEW.md) — Phase 2 findings, fixes, residual risk
+- [`docs/LIVE_SMOKE.md`](docs/LIVE_SMOKE.md) — manual, paid Haiku smoke test on GitHub Actions: setup, secret handling, ledger limits
 - [`docs/security-review/REGRESSION_EVIDENCE.md`](docs/security-review/REGRESSION_EVIDENCE.md) — each regression test before/after the fixes
 
 ## License
