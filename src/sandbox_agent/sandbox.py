@@ -610,7 +610,11 @@ def _take_marker(
                 data = json.loads(payload)
             except json.JSONDecodeError:
                 data = {"raw": payload[:200]}
-            rest = "".join(lines[:index] + lines[index + 1 :])
+            before = lines[:index]
+            if not first and before and before[-1].endswith("\n"):
+                # Drop the newline the entrypoint inserts before its exit marker.
+                before[-1] = before[-1][:-1]
+            rest = "".join(before + lines[index + 1 :])
             return (rest, None, data) if is_failure else (rest, data, None)
     if first and line.startswith("sandbox-agent:attest-failed"):
         return text, None, line

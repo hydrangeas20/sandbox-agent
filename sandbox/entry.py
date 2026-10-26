@@ -42,9 +42,11 @@ PR_SET_DUMPABLE = 4
 NONCE_VAR = "SANDBOX_AGENT_NONCE"
 
 
-def emit(kind: str, nonce: str, payload: dict[str, object]) -> None:
+def emit(kind: str, nonce: str, payload: dict[str, object], *, fresh_line: bool = False) -> None:
     line = f"sandbox-agent:{kind} {nonce} {json.dumps(payload, sort_keys=True)}\n"
-    os.write(2, line.encode())
+    # The exit marker follows untrusted output, which may end mid-line; a leading newline
+    # guarantees the marker is a line of its own (the host strips the empty line).
+    os.write(2, (("\n" if fresh_line else "") + line).encode())
 
 
 def status_fields() -> dict[str, str]:
@@ -224,7 +226,7 @@ def main() -> int:
         "memory_limit": facts.get("memory_limit"),
         "duration_ms": int((time.monotonic() - started) * 1000),
     }
-    emit("exit", nonce, report)
+    emit("exit", nonce, report, fresh_line=True)
     if state["deadline"]:
         return EXIT_DEADLINE
     return 128 + term_signal if term_signal is not None else exit_code
