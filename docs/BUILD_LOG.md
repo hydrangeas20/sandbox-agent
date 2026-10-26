@@ -22,3 +22,12 @@ Concise per-milestone progress entries. Newest last.
 - Fail-closed observed in practice: the first run aborted with `CgroupnsMode is host` (cgroup v1 host); fixed by requesting `--cgroupns private`, not by relaxing the check.
 - Workspace is mounted **read-only**; container writes go only to a 64 MiB `noexec,nosuid,nodev` tmpfs.
 - Tests: unit tests for args, 21 inspect mutations, 4 mount-tampering cases, mount-source validation and missing docker; 11 Docker runtime tests (only `lo`, TCP/DNS fail, uid/gid 10001, CapEff/CapPrm/CapBnd = 0, NoNewPrivs=1, Seccomp=2, setuid denied, EROFS on rootfs and workspace even for world-writable files, `/tmp` noexec, no planted secrets in env, 600 MB allocation OOM-killed, thread bomb stopped by PID limit, busy loop killed at timeout, 2 MB output truncated, RLIMIT_FSIZE → EFBIG, tampered inspect aborts before start and leaves no container). 66/66 pass.
+
+## M4 — Workspace security
+- Goal: a disposable copy of the fixture that host code can only touch through validated paths.
+- `workspace.py`: private root (`mkdtemp`, 0700) + `repo/` copy. Copy never follows symlinks (links preserved as inert entries), rejects FIFOs/devices, enforces entry and byte limits, normalises file modes to 0644 (drops setuid/exec bits), and cleans up on failure.
+- `resolve()`: lexical rules (no `..`, absolute, `~`, drive letters, backslash, NUL/control chars, length/depth caps) then per-component `lstat`; **any** symlink component is refused, including links pointing inside the workspace; only regular files/dirs accepted.
+- Reads: `O_NOFOLLOW`, size-capped, UTF-8 only. Writes: existing files only, temp file + re-check + atomic `os.replace` (never follows a link at the target).
+- `FixtureRegistry` maps a regex-validated *name* to a direct, non-symlink child of the registry; `tree_manifest()` hashes a tree without following links (used to prove the fixture is unchanged).
+- Cleanup is idempotent, refuses paths it did not create, and does not follow symlinks.
+- Tests: 46 workspace tests (15 traversal variants × read/write/resolve, 5 symlink variants, link swapped after copy, dir link in the middle, FIFO, binary, size and copy limits, mode stripping, cleanup safety, fixture-name validation) + 1 Docker test confirming the container cannot write or create links in the real workspace. 113/113 pass.
