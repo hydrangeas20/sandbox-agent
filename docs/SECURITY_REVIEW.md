@@ -40,7 +40,7 @@ repository and model). Classification: **Confirmed** vulnerability, **DiD**
 | SR-02 | Image-level environment variables passed verification with any value. | **Confirmed · Medium** | Image with `ENV LD_PRELOAD=… PYTHONPATH=… AWS_SECRET_ACCESS_KEY=…` ran; all three were visible inside. `python:3.12-slim` adds `GPG_KEY`, `PYTHON_*`. | Runner image flattened onto `scratch` (drops all base ENV/ENTRYPOINT/CMD). Inspect must show exactly the configured env plus a per-run nonce; preflight rejects an image whose env differs. PID 1 scrubs Docker's runtime-injected `HOSTNAME`, so the workload sees exactly the configured variables. | `test_sr02_*` (verify, preflight, exact env inside) | A compromised image could still alter binaries; image provenance (digest pinning, signing) is out of scope. Host env never reached the container before either (**FP** for that half: `test_env_is_minimal`, CLI env filter). |
 | SR-03 | The agent could make a task "succeed" by editing the tests that decide success. | **Confirmed · High** (result integrity) | Patch deleting the two failing assertions → `succeeded`, with the bug still in the source. | `tests/`, `test/`, test discovery/config (`conftest.py`, `pyproject.toml`, `setup.cfg`, `setup.py`, `tox.ini`, `pytest.ini`, `noxfile.py`, `unittest.cfg`, `.coveragerc`), start-up hooks (`sitecustomize.py`, `usercustomize.py`, `*.pth`), `.sandbox-agent/`, `evals/`, `.github/` are protected in `apply_patch` **and** by a final-diff allowlist at the controller boundary (only modifications of existing, non-protected regular files; otherwise `policy_aborted`). | `test_sr03_*` (3 path spellings, 11 protected files, diff gate with out-of-band write) | **Accepted:** a *source* patch can still subvert the in-process test runner (e.g. monkeypatch `unittest` on import). "Succeeded" means the repository's own suite passed; human diff review remains required. The eval harness adds held-out tests outside the agent's reach. Legitimate test edits need a future explicitly authorised mode. |
 | SR-04 | Containers outlived a crashed controller. The timeout lived only in the host process. | **Confirmed · Medium** | Controller SIGKILLed during a 20 s-timeout busy loop: the container was still `Up 43 seconds` and never removed. | (1) PID 1 watchdog enforces `timeout + grace` with no host involvement; it is non-dumpable, so the workload cannot ptrace it or read `/proc/1/*`, and it is immune to in-namespace signals. (2) Containers and workspaces are tagged with the owner (`host:pid:start-ticks`); the next preflight or task start removes orphans of dead owners immediately, and anything past a reap deadline. (3) CLI unwinds on SIGTERM/SIGHUP. | `test_sr04_sigterm_to_controller_cleans_up_promptly` (exit 143, no container or workspace left), `test_sr04_sigkill_to_controller_is_recovered` (watchdog stops it; next `preflight` recovers it), `test_sr04_container_stops_when_host_process_dies`, `test_sr04_pid1_watchdog_cannot_be_killed_or_traced`, reaper decision tests | Between a SIGKILL and the next controller start, a stopped container and workspace remain on disk; a runaway workload lasts at most `timeout + grace` (35 s by default). |
-| SR-05 | No total-output limit. The reader kept only 64 KiB but drained everything. | **Confirmed · Medium** | 30 s flood: 13.9 GiB streamed; host CPU ≈ dockerd 14.7 s + CLI 10.6 s + runner 4.7 s. | `max_total_output_bytes` (16 MiB, both streams) kills the container asynchronously so readers keep draining; status `output_limit`. | `test_sr05_output_flood_is_stopped_early[stdout,stderr]`; adversarial flood test strengthened | After the fix the same flood stops in 0.6 s after ~40 MiB (kill latency), using ~0.3 s of host CPU. The overshoot is bounded by kill latency, not the budget. |
+| SR-05 | No total-output limit. The reader kept only 64 KiB but drained everything. | **Confirmed · Medium** | 30 s flood: 13.9 GiB streamed; host CPU ≈ dockerd 14.7 s + CLI 10.6 s + runner 4.7 s. | `max_total_output_bytes` (16 MiB, both streams) kills the container asynchronously so readers keep draining; status `output_limit`. | `test_sr05_output_flood_is_stopped_early[stdout,stderr]`; adversarial flood test strengthened | After the fix the same flood stopped in 0.6 s after ~40 MiB (kill latency), using ~0.3 s of host CPU. The overshoot was bounded by kill latency, not the budget. **Superseded:** the budget is now enforced exactly inside the container; see the SR-05 follow-up below. |
 | SR-06 | A FIFO in a fixture hung the task forever (integrity hash read it before the copy rejected it). | **Confirmed · Low** (DoS; git cannot store FIFOs) | `tree_manifest` still blocked after 3 s. | Manifest hashes special files by type only; regular files opened `O_NONBLOCK` and `fstat`-checked. | `test_sr06_*` | — |
 | SR-07 | Hard links in a fixture were copied, aliasing files outside the tree. | **DiD · Low** (git cannot create hard links) | Hard link to a host file → readable by the agent. | Copy rejects `st_nlink > 1`. | `test_sr07_hard_link_in_fixture_rejected` | — |
 | SR-08 | Fixture copy TOCTOU: directory swapped for a symlink after listing was followed; byte limit used `stat` size, not bytes copied. | **DiD · Low** (needs a concurrent local writer) | Fault injection: swapped directory was followed into an outside directory; a file growing during copy bypassed the limit. | Descriptor-relative copy (`O_NOFOLLOW` + `dir_fd`), inode check between listing and open, limits on bytes actually copied. | `test_sr08_*` | Fixture directories are assumed not to be writable by untrusted local users. |
@@ -58,6 +58,73 @@ repository and model). Classification: **Confirmed** vulnerability, **DiD**
 | A-4 | Cancellation does not interrupt a running container. | **Accepted · Low** | — | Bounded by `timeout_s`; checked before and after each provider call. | `test_cancellation_*` | — |
 | A-5 | API is unauthenticated (loopback only); a local user could spend real-model budget. | **Accepted · Low** | — | Real provider requires `SANDBOX_AGENT_OFFLINE=0` plus a key in the server's environment; per-task cost cap. | — | — |
 | O-1 | Real-model behaviour under injection. | **Open** | Stub-tested only; live evaluation pending the operator's API key. | `sandbox-agent eval --provider anthropic` | — | Containment does not depend on the model, but task success and denial rates do. |
+
+### SR-05 follow-up: output budget enforced inside the container
+
+**Observed.** On a CI runner, `test_sr05_output_flood_is_stopped_early[stderr]`
+counted 118,489,271 bytes (113 MiB) against an assertion of less than 4 × the 16 MiB
+budget. A re-run passed. The commit under test changed only documentation.
+
+**Root cause.** The budget was enforced only by the host. When the readers counted
+16 MiB, the runner started `docker kill` in a new process, and the readers kept
+draining until the container died. Everything after the trip was flood rate
+(about 200 MiB/s on the build host) multiplied by kill latency (CLI start-up, daemon
+round trip, signal delivery, stream close). Instrumented runs before the fix:
+
+| Build host | Host bytes at trip | Host bytes in total | Trip → `docker kill` returned |
+|---|---|---|---|
+| Idle, 3 runs | 16.1 MiB | 30.9–45.7 MiB | 82–121 ms |
+| 2 CPUs saturated, 5 runs | 16.1 MiB | 31.2–81.6 MiB | 135–273 ms |
+
+So the assertion measured host scheduling, not the control. The properties
+themselves behaved differently from one another:
+
+- **Retained output** was bounded (64 KiB head per stream plus an 8 KiB tail) and
+  was unaffected.
+- **Bytes processed by the host** (dockerd, the CLI and the runner's readers) were
+  bounded by the budget plus rate × kill latency. This was not a fixed bound, and a
+  slower host processed more.
+- **Time to terminate** was the kill latency, which depends on host load.
+
+**Fix.** PID 1 (`sandbox/entry.py`) now owns the budget:
+
+- The command's stdout and stderr are pipes to PID 1, which relays them to the
+  container's own streams and forwards at most `--max-output-bytes` (the configured
+  `max_total_output_bytes`) across both.
+- The chunk that would exceed the budget is cut at the budget, every workload process
+  is killed with `kill(-1, SIGKILL)` before anything else is forwarded, and remaining
+  buffered output is discarded.
+- The exit report records `output_bytes` and `output_limit`, and the host maps
+  `output_limit` to the `output_limit` status.
+- The host's own budget is kept as a backstop at the budget plus 64 KiB for PID 1's
+  two marker lines, so it fires only if PID 1 did not enforce.
+- The workload cannot write to the container's streams directly: PID 1 is
+  non-dumpable, so opening `/proc/1/fd/1` or `/proc/1/fd/2` fails with `EACCES`.
+
+**After the fix,** every run delivered exactly 16,777,216 workload bytes plus the
+markers (16.0 MiB), idle and with both CPUs saturated, and the host backstop never
+fired.
+
+**Tests.** These replace the byte-ratio assertion with the guarantees themselves:
+
+- `test_sr05_output_flood_is_stopped_early[stdout,stderr]`: status, `output_bytes`
+  equal to the budget, host total no more than budget + markers, bounded retention.
+- `test_sr05_output_budget_boundary_is_exact`: exactly the budget completes; one byte
+  more is `output_limit`.
+- `test_sr05_workload_cannot_bypass_the_output_relay`.
+- `test_sr05_host_backstop_without_entrypoint_enforcement`: PID 1 given a huge limit,
+  so the host backstop must kill the run.
+
+On the pre-fix code the first four of these fail and the bypass and backstop tests
+pass. After the fix, all six pass in 20 of 20 repetitions idle and 20 of 20 with
+both CPUs saturated, together with the adversarial flood test.
+
+**Residual risk.** Termination time still depends on PID 1 being scheduled. It shares
+the container's CPU quota with the workload, but it no longer depends on the host.
+The relay adds a copy of every output byte inside the container; five `make demo`
+runs afterwards gave a median of 1,548 ms end to end and about 708 ms per
+`run_tests`, within run-to-run noise of the figures below. PID 1 is a larger piece of
+trusted code than before.
 
 ## Controller and agent-loop verification
 

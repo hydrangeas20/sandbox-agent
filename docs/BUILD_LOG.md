@@ -139,3 +139,21 @@ Concise per-milestone progress entries. Newest last.
 - Full-history credential scan (27 commits, 216 blobs; pattern scan plus detect-secrets) found no real credentials, only fakes and fixtures. Build-environment paths were scrubbed from the evidence logs.
 - New test: `test_live_smoke_configuration_is_bounded` (never-finishing model, maximal usage, constant timeouts) checks ≤12 requests, one reservation per request, and spend ≤ $0.50.
 - Offline: `make ci` 409 passed; security suites 285/0/0; demo succeeded; actionlint clean. No paid calls.
+
+## Output budget enforced in PID 1 (2026-10-26)
+- Investigated a CI failure of `test_sr05_output_flood_is_stopped_early[stderr]`: 113 MiB (118,489,271 bytes) against a 64 MiB assertion.
+  - Root cause: the budget was host-side only, so the overshoot was flood rate × `docker kill` latency.
+  - Instrumented before the fix: 31–82 MiB with the build host's CPUs saturated, versus a trip at 16.1 MiB.
+  - Retained output was always bounded. Bytes processed by the host and time to terminate depended on host load.
+- Fix:
+  - `sandbox/entry.py` relays the command's stdout and stderr through pipes and forwards exactly `max_total_output_bytes`, then kills the workload. It reports `output_bytes` and `output_limit` in the exit report.
+  - The host maps the report to `output_limit` and keeps its own budget as a backstop at the budget plus 64 KiB.
+  - The new `--max-output-bytes` argument is part of the inspect-verified argv. See D20 and the SR-05 follow-up in `SECURITY_REVIEW.md`.
+- Tests: the byte-ratio assertions (here and in `test_adversarial.py`) are replaced with exact ones.
+  - Exact bytes forwarded, host total ≤ budget + markers, and bounded retention.
+  - An exact boundary test (budget completes, budget + 1 is limited).
+  - The relay cannot be bypassed via `/proc/1/fd`.
+  - The host backstop still works when PID 1 does not enforce.
+  - 4 of 6 fail before the fix. All pass 20/20 idle and 20/20 under full CPU load.
+- After the fix: exactly 16.0 MiB reached the host in every instrumented run, idle and loaded.
+- Offline: `make ci` 413 passed; security suites 289/0/0; demo 5/5 succeeded.

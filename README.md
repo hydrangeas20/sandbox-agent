@@ -101,11 +101,11 @@ With the denial budget raised so that every directive is attempted, all 10 out-o
 
 | Evidence | Result | Source |
 | --- | --- | --- |
-| Test suite | **409 tests.** In CI: 348 without Docker (job `quality`, with Ruff, `ruff format` and `mypy --strict`) and 61 Docker, end-to-end and adversarial tests (job `sandbox`, `python:3.12-slim`, cgroup v2). Both jobs passed on commit `49f7734`. | [`ci.yml`](.github/workflows/ci.yml) |
-| Security suites | **285 pass, 0 fail, 0 skipped.** Skips are reported as skips, never as passes. | [`ADVERSARIAL_REPORT.md`](docs/ADVERSARIAL_REPORT.md) |
+| Test suite | **413 tests.** In CI: 348 without Docker (job `quality`, with Ruff, `ruff format` and `mypy --strict`) and 65 Docker, end-to-end and adversarial tests (job `sandbox`, `python:3.12-slim`, cgroup v2). | [`ci.yml`](.github/workflows/ci.yml) |
+| Security suites | **289 pass, 0 fail, 0 skipped.** Skips are reported as skips, never as passes. | [`ADVERSARIAL_REPORT.md`](docs/ADVERSARIAL_REPORT.md) |
 | Security-review regressions | Each confirmed finding has a test written against the pre-fix code: **2 passed, 72 failed before** (the 2 passes are false-positive checks); **79 passed, 0 failed after**. | [`REGRESSION_EVIDENCE.md`](docs/security-review/REGRESSION_EVIDENCE.md) |
 | Prompt-injection containment | 10 of 10 injected out-of-policy actions denied; the model's success claim ignored; fixtures unchanged. | [`test_adversarial.py`](tests/test_adversarial.py) |
-| Output flood (`while True: write 1 MiB`) | Before the fix: 30 s, 13.9 GiB streamed, about 30 host CPU-seconds. After: stopped in 0.6 s after about 40 MiB. | [`SECURITY_REVIEW.md`](docs/SECURITY_REVIEW.md) |
+| Output flood (`while True: write 1 MiB`) | Before any budget: 30 s, 13.9 GiB streamed, about 30 host CPU-seconds. Now: cut off inside the container at exactly the 16 MiB budget, so the host receives 16 MiB plus two marker lines, idle or under load. | [`SECURITY_REVIEW.md`](docs/SECURITY_REVIEW.md#sr-05-follow-up-output-budget-enforced-inside-the-container) |
 | Latency, five `make demo` runs | End-to-end task (including preflight and 2 sandbox runs): median 1,495 ms (min 1,409, max 1,547). One sandboxed `run_tests` (create → verify → attest → run → remove): median 692 ms (min 637, max 706). 5/5 succeeded with the fixture unchanged. | [`SECURITY_REVIEW.md`](docs/SECURITY_REVIEW.md#performance) |
 | Evaluation harness | 8/8 tasks with **scripted reference plans**. This validates the fixtures, held-out tests and harness. It is **not** a model result. | [`scripted-latest.md`](evals/results/scripted-latest.md) |
 | Real-model evaluation | **Not yet run.** | [Real-model evaluation](#real-model-evaluation) |
@@ -157,7 +157,7 @@ Components, task lifecycle, status semantics and default limits are specified in
 | Network exfiltration | `--network none`, verified by inspect and attested inside (only `lo`) | `test_network_disabled`, `test_hostile_test_code_is_contained` |
 | Privilege escalation | uid 10001, `--cap-drop ALL`, `no-new-privileges`, pinned seccomp profile (Docker default + canary), read-only rootfs | `test_privilege_restrictions`, `test_sr01_*` |
 | Isolation silently weakened | `docker inspect` compared to config (exact seccomp JSON, security-option allowlist, exact env); runtime attestation by PID 1 | `test_sr01_runtime_attestation_catches_weak_seccomp` |
-| Resource exhaustion | Memory = swap, CPUs, PIDs, `nofile`, `RLIMIT_FSIZE`, tmpfs, timeout, total output budget; OOM attributed from cgroup counters | `test_resource_*`, `test_sr05_*`, `test_sr13_*` |
+| Resource exhaustion | Memory = swap, CPUs, PIDs, `nofile`, `RLIMIT_FSIZE`, tmpfs, timeout, total output budget enforced exactly by PID 1 (host backstop); OOM attributed from cgroup counters | `test_resource_*`, `test_sr05_*`, `test_sr13_*` |
 | Controller crash leaves containers running | PID 1 watchdog deadline; owner-tagged reaping on next start; SIGTERM unwinding | `test_sr04_*` |
 | Secret leakage | Exact container environment; test output and exception text never traced; linear-time redaction as a backstop | `test_env_is_minimal`, `test_sr12_*` |
 | Runaway agent or model spend | Iteration, tool-call, wall-clock, denial and invalid-output budgets; call, token and cost budgets reserved in a ledger before each request | `test_agent.py`, `test_real_model_path.py`, `test_spend_ledger.py` |
@@ -256,6 +256,6 @@ Real-model runs require `--experiment-budget-usd`. Before each request, its wors
 | [`SECURITY_REVIEW.md`](docs/SECURITY_REVIEW.md) | Phase 2 findings, fixes and residual risk |
 | [`REGRESSION_EVIDENCE.md`](docs/security-review/REGRESSION_EVIDENCE.md) | Each regression test before and after the fixes |
 | [`ADVERSARIAL_REPORT.md`](docs/ADVERSARIAL_REPORT.md) | Generated security-suite results |
-| [`DECISIONS.md`](docs/DECISIONS.md) | Engineering decisions D1–D19 and their costs |
+| [`DECISIONS.md`](docs/DECISIONS.md) | Engineering decisions D1–D20 and their costs |
 | [`LIVE_SMOKE.md`](docs/LIVE_SMOKE.md) | Manual, paid Haiku smoke test: setup, secret handling, cost bound, ledger limits |
 | [`BUILD_LOG.md`](docs/BUILD_LOG.md) | Milestone-by-milestone progress and verification |

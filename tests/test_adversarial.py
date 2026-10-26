@@ -190,8 +190,11 @@ def test_resource_output_flood_truncated(fixtures_dir: Path, tmp_path: Path) -> 
     # SR-05: the flood (~128 MiB) is stopped at the total-output budget, not drained.
     assert out["status"] == "output_limit"
     assert out["resources"]["output_limited"] is True
+    # Cut off inside the container at exactly the budget, shared by both streams
+    # (+ PID 1's marker lines), independent of host load.
     budget = SandboxConfig().max_total_output_bytes
-    assert out["resources"]["stdout_bytes"] < 4 * budget
+    total = out["resources"]["stdout_bytes"] + out["resources"]["stderr_bytes"]
+    assert budget <= total <= budget + 8 * 1024
     assert len(out["stdout_tail"]) <= 4000
 
 

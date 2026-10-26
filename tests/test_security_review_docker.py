@@ -190,17 +190,85 @@ print(json.dumps(r))
 # ============================================================ SR-05 output budget
 
 
+FLOOD = "import sys\nb = 'Z' * (1 << 20)\nwhile True: sys.{stream}.write(b)"
+# The two entrypoint marker lines (attest, exit) are the only bytes besides the
+# workload's own output; each is well under 4 KiB.
+MARKERS = 8 * 1024
+
+
 @pytest.mark.parametrize("stream", ["stdout", "stderr"])
 def test_sr05_output_flood_is_stopped_early(ws: Path, stream: str) -> None:
+    """The flood is cut off inside the container at exactly the budget.
+
+    Asserts the guarantees, not the host's timing: the bytes that leave the container
+    are the budget plus the two marker lines, whatever the host load or kill latency.
+    """
+    budget = SandboxConfig().max_total_output_bytes
     started = time.monotonic()
-    out = run_py(
-        ws, f"import sys\nb = 'Z' * (1 << 20)\nwhile True: sys.{stream}.write(b)", timeout_s=20
-    )
+    out = run_py(ws, FLOOD.format(stream=stream), timeout_s=20)
     elapsed = time.monotonic() - started
     assert out.status == "output_limit", out.status
-    assert elapsed < 10, f"flood ran {elapsed:.1f}s"
+    assert out.exit_report is not None, "exit report missing: PID 1 did not finish cleanly"
+    assert out.exit_report["output_limit"] is True
+    assert out.exit_report["output_bytes"] == budget  # forwarded, exactly
     total = out.stdout_bytes_total + out.stderr_bytes_total
-    assert total < 4 * SandboxConfig().max_total_output_bytes
+    assert budget <= total <= budget + MARKERS  # host processed no flood beyond the budget
+    kept = len(out.stdout) + len(out.stderr)
+    assert kept <= 2 * SandboxConfig().max_output_bytes  # retained output stays bounded
+    assert elapsed < 10, f"flood ran {elapsed:.1f}s"
+    assert managed("-a") == []
+
+
+@pytest.mark.parametrize(("extra", "limited"), [(0, False), (1, True)])
+def test_sr05_output_budget_boundary_is_exact(ws: Path, extra: int, limited: bool) -> None:
+    """Exactly the budget is allowed through; one byte more is the limit."""
+    budget = 64 * 1024  # the smallest permitted budget keeps this fast
+    code = (
+        "import os\n"
+        f"n = {budget + extra}\n"
+        "while n:\n"
+        "    n -= os.write(1 + n % 2, b'x' * min(n, 1000))\n"
+    )
+    out = run_py(ws, code, max_total_output_bytes=budget)
+    assert out.exit_report is not None
+    assert out.exit_report["output_limit"] is limited
+    assert out.exit_report["output_bytes"] == budget
+    assert out.status == ("output_limit" if limited else "completed"), out.status
+
+
+def test_sr05_workload_cannot_bypass_the_output_relay(ws: Path) -> None:
+    """The container's own stdout/stderr belong to PID 1, which is non-dumpable."""
+    code = """
+import errno, json, os
+r = {}
+for fd in (1, 2):
+    try:
+        os.open(f"/proc/1/fd/{fd}", os.O_WRONLY); r[fd] = "opened"
+    except OSError as e:
+        r[fd] = errno.errorcode[e.errno]
+os.write(1, (json.dumps(r) + "\\n").encode())
+"""
+    out = run_py(ws, code)
+    assert out.status == "completed", out
+    assert json.loads(out.stdout.strip().splitlines()[-1]) == {"1": "EACCES", "2": "EACCES"}
+
+
+def test_sr05_host_backstop_without_entrypoint_enforcement(
+    ws: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Defence in depth: if PID 1 did not enforce, the host budget still kills the run."""
+    original = DockerSandbox.wrapped_argv
+
+    def lenient(self: DockerSandbox, command: ContainerCommand) -> list[str]:
+        argv = original(self, command)
+        if "--max-output-bytes" in argv:
+            argv[argv.index("--max-output-bytes") + 1] = str(1 << 40)
+        return argv
+
+    monkeypatch.setattr(DockerSandbox, "wrapped_argv", lenient)
+    out = run_py(ws, FLOOD.format(stream="stdout"), timeout_s=20)
+    assert out.status == "output_limit", out.status
+    assert out.stdout_bytes_total > SandboxConfig().max_total_output_bytes
     assert managed("-a") == []
 
 

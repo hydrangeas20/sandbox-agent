@@ -1,8 +1,8 @@
 # Adversarial Evaluation Report
 
-Generated 2026-10-26 19:24 UTC by `scripts/adversarial_report.py` from pytest JUnit output. Docker server 29.9.2. Skipped tests are listed as SKIPPED, never as passes.
+Generated 2026-10-26 20:49 UTC by `scripts/adversarial_report.py` from pytest JUnit output. Docker server 29.9.2. Skipped tests are listed as SKIPPED, never as passes.
 
-**Totals:** 285 pass, 0 fail, 0 skipped.
+**Totals:** 289 pass, 0 fail, 0 skipped.
 
 ## Adversarial scenarios (`tests/test_adversarial.py`)
 
@@ -76,8 +76,12 @@ Finding IDs refer to `docs/SECURITY_REVIEW.md`. Before/after evidence for each i
 | SR-04 | `test_sr04_sigkill_to_controller_is_recovered` | PASS |
 | SR-04 | `test_sr04_sigterm_to_controller_cleans_up_promptly` | PASS |
 | SR-04 | `test_sr04_workspace_reaper` | PASS |
+| SR-05 | `test_sr05_host_backstop_without_entrypoint_enforcement` | PASS |
+| SR-05 | `test_sr05_output_budget_boundary_is_exact[0-False]` | PASS |
+| SR-05 | `test_sr05_output_budget_boundary_is_exact[1-True]` | PASS |
 | SR-05 | `test_sr05_output_flood_is_stopped_early[stderr]` | PASS |
 | SR-05 | `test_sr05_output_flood_is_stopped_early[stdout]` | PASS |
+| SR-05 | `test_sr05_workload_cannot_bypass_the_output_relay` | PASS |
 | SR-06 | `test_sr06_fifo_fixture_task_fails_fast` | PASS |
 | SR-06 | `test_sr06_fifo_in_fixture_does_not_hang` | PASS |
 | SR-07 | `test_sr07_hard_link_in_fixture_rejected` | PASS |
@@ -130,7 +134,7 @@ Finding IDs refer to `docs/SECURITY_REVIEW.md`. Before/after evidence for each i
 | `test_sandbox_args` | 37 | 0 | 0 |
 | `test_sandbox_docker` | 11 | 0 | 0 |
 | `test_security_review` | 66 | 0 | 0 |
-| `test_security_review_docker` | 13 | 0 | 0 |
+| `test_security_review_docker` | 17 | 0 | 0 |
 | `test_tools` | 31 | 0 | 0 |
 | `test_trace` | 12 | 0 | 0 |
 | `test_workspace` | 46 | 0 | 0 |

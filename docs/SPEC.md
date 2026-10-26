@@ -124,7 +124,7 @@ modifications of existing, non-protected regular files are allowed), and
 Sandbox run statuses (in `run_tests` results): `completed`, `timeout` (host
 timeout or in-container watchdog), `oom_killed` (Docker flag, or SIGKILL plus
 a cgroup `oom_kill` increase), `killed` (SIGKILL without OOM evidence), and
-`output_limit` (total output budget exceeded).
+`output_limit` (total output budget reached; PID 1 cut the output and killed the workload).
 
 ## 6. Default limits
 
@@ -137,7 +137,7 @@ a cgroup `oom_kill` increase), `killed` (SIGKILL without OOM evidence), and
 | `/tmp` tmpfs | 64 MiB, `noexec,nosuid,nodev` |
 | Command timeout | 30 s |
 | Captured output per stream | 64 KiB head + 8 KiB tail (excess discarded, flagged `truncated`) |
-| Total output (both streams) | 16 MiB, then the container is killed (`output_limit`) |
+| Total output (both streams) | 16 MiB, enforced exactly by PID 1, which then kills the workload (`output_limit`); host backstop at 16 MiB + 64 KiB |
 | In-container watchdog | `timeout + 5 s`, enforced by PID 1 without the host |
 | Model budget (real provider) | 12 calls, 1,024 output tokens/call, 150k tokens, $0.50 per task, 60 s per request |
 | Max file read | 256 KiB |

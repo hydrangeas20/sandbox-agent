@@ -16,9 +16,11 @@ Flow for one run (fail closed at every step):
    and the container is removed **before it starts**.
 4. ``docker start --attach``. The trusted entrypoint (``sandbox/entry.py``, PID 1)
    attests the controls from inside the container and only then runs the command;
-   a missing or failed attestation aborts the run. Output is bounded per stream
-   (head + tail) and in total (the container is killed past the budget), and a
-   wall-clock timeout triggers ``docker kill``. PID 1 also enforces its own
+   a missing or failed attestation aborts the run. The host keeps a bounded head
+   and tail per stream. PID 1 relays the command's output and stops it at exactly
+   the total budget, killing the workload; the host kills the container if more
+   than the budget plus PID 1's marker lines arrives (backstop). A wall-clock
+   timeout triggers ``docker kill``. PID 1 also enforces its own
    deadline, so a container cannot outlive a crashed host process for long.
 5. Classify the outcome (OOM attribution uses the entrypoint's cgroup evidence)
    and always ``docker rm -f``. Stale containers from crashed runs are reaped at
@@ -50,6 +52,10 @@ _LABEL = "sandbox-agent.managed=1"
 _DEADLINE_LABEL = "sandbox-agent.deadline"
 _OWNER_LABEL = "sandbox-agent.owner"
 _TAIL_BYTES = 8192
+# Besides the workload's output, PID 1 writes only its attest and exit marker lines.
+# The host-side budget allows for them, so it fires only if the in-container budget
+# was not enforced (defence in depth).
+_MARKER_ALLOWANCE_BYTES = 64 * 1024
 
 SECCOMP_PROFILE_PATH = Path(__file__).with_name("seccomp") / "profile.json"
 ENTRYPOINT = ("python3", "-I", "-S", "/opt/sandbox-agent/entry.py")
@@ -112,7 +118,8 @@ class RunOutcome(BaseModel):
       * ``oom_killed`` - Docker reported OOMKilled, or the entrypoint observed the
         workload die by SIGKILL while the cgroup's ``oom_kill`` counter increased;
       * ``killed`` - SIGKILL (exit 137) with no OOM evidence and not sent by the runner;
-      * ``output_limit`` - the total output budget was exceeded and the runner killed it.
+      * ``output_limit`` - the total output budget was reached: PID 1 cut the output at
+        the budget and killed the workload (or, as a backstop, the runner killed it).
     """
 
     model_config = ConfigDict(frozen=True)
@@ -313,6 +320,7 @@ class DockerSandbox:
             "--deadline", f"{cfg.timeout_s + cfg.watchdog_grace_s}",
             "--uid", str(SANDBOX_UID),
             "--env-keys", ",".join(k for k, _ in cfg.env),
+            "--max-output-bytes", str(cfg.max_total_output_bytes),
             "--",
             *command.argv,
         ]  # fmt: skip
@@ -503,12 +511,16 @@ class DockerSandbox:
         killed_by_budget = threading.Event()
 
         def kill_for_output() -> None:
-            # Called from a reader thread; kill asynchronously so both readers keep
-            # draining (a blocked reader back-pressures dockerd and stalls the kill).
+            # Backstop only: PID 1 enforces the exact budget inside the container, so
+            # this fires only if that failed. Called from a reader thread; kill
+            # asynchronously so both readers keep draining (a blocked reader
+            # back-pressures dockerd and stalls the kill).
             killed_by_budget.set()
             threading.Thread(target=self._cli, args=("kill", container_id), daemon=True).start()
 
-        budget = _OutputBudget(self.config.max_total_output_bytes, kill_for_output)
+        budget = _OutputBudget(
+            self.config.max_total_output_bytes + _MARKER_ALLOWANCE_BYTES, kill_for_output
+        )
         proc = subprocess.Popen(
             [self._docker, "start", "--attach", container_id],
             stdout=subprocess.PIPE,
@@ -555,7 +567,7 @@ class DockerSandbox:
         status: Status
         if timed_out or (report is not None and report.get("deadline")):
             status = "timeout"
-        elif killed_by_budget.is_set():
+        elif killed_by_budget.is_set() or (report is not None and report.get("output_limit")):
             status = "output_limit"
         elif bool(state.get("OOMKilled")) or (
             report is not None and report.get("signal") == 9 and (report.get("oom_kills") or 0) > 0

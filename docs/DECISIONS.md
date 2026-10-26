@@ -286,3 +286,21 @@ that way.
 **Cost.** Figures are estimates from published prices. The Anthropic Console is
 authoritative, and a Console spend limit is the only hard cap. The ledger is local:
 it does not carry across GitHub Actions runs (see [`LIVE_SMOKE.md`](LIVE_SMOKE.md)).
+
+## D20. Enforce the output budget in PID 1, not only on the host
+
+**Decision.** The trusted entrypoint relays the command's stdout and stderr and
+forwards at most `max_total_output_bytes` across both. At the budget it kills every
+workload process before forwarding anything more. The host's budget remains as a
+backstop at the budget plus room for PID 1's marker lines.
+
+**Why.** A host-side budget can only react after the bytes have crossed into dockerd,
+the CLI and the runner. The overshoot was flood rate × kill latency, which made the
+amount of host processing depend on host load (a CI run saw 113 MiB against a
+16 MiB budget). Cutting the stream where it is produced gives an exact bound that
+does not depend on the host.
+
+**Cost.** PID 1 is now in the data path. It is more trusted code, it copies every
+output byte, and it shares the container's CPU quota with the workload. The
+guarantee depends on the workload being unable to reach the container's own streams,
+which holds because PID 1 is non-dumpable (`test_sr05_workload_cannot_bypass_the_output_relay`).

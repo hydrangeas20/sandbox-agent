@@ -88,7 +88,7 @@ truth for the adversarial test suite (`tests/test_adversarial.py`).
 | T19 | Image-provided env (`LD_PRELOAD`, `PYTHONPATH`, baked credentials). | E, I | Flattened image; exact env in preflight and inspect; PID 1 scrubs runtime-injected vars. | `test_sr02_*` |
 | T20 | Agent (or injected instructions) edits the tests or test configuration that decide success. | T, R | Protected paths in `apply_patch`; controller final-diff allowlist; held-out eval tests. | `test_sr03_*`, `test_evals.py` |
 | T21 | Controller dies (SIGKILL, crash) while a container runs. | D | PID 1 watchdog deadline; owner-tagged reaping of containers and workspaces; SIGTERM unwinding. | `test_sr04_*` |
-| T22 | Output flood burns host CPU through dockerd and the CLI. | D | Total output budget with asynchronous kill. | `test_sr05_*` |
+| T22 | Output flood burns host CPU through dockerd and the CLI. | D | Total output budget enforced inside the container by PID 1 (exact; independent of host latency); host budget with asynchronous kill as a backstop. | `test_sr05_*` |
 | T23 | Hostile strings make trace redaction quadratic (ReDoS). | D | Bounded, boundary-anchored patterns. | `test_sr12_redaction_is_not_quadratic` |
 | T24 | DNS rebinding to the loopback API. | S, E | Host-header allowlist. | `test_sr11_*` |
 | T25 | Workload forges entrypoint markers to spoof attestation or OOM attribution. | S | Per-run nonce held only by non-dumpable PID 1; first/last-line positions. | `test_forged_*` |
