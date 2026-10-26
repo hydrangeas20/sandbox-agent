@@ -63,11 +63,13 @@ def test_ledger_caps_spend_across_invocations(tmp_path: Path) -> None:
     ledger = SpendLedger(tmp_path / "ledger.json", experiment_budget_usd=1.00)
     assert ledger.remaining() == pytest.approx(1.00)
     assert ledger.cap(0.50) == pytest.approx(0.50)
-    ledger.record("smoke", model="claude-haiku-5-5", cost_usd=0.70, calls=3, tokens=1000)
+    ledger.settle(ledger.reserve(0.70, label="smoke", model="claude-haiku-5-5"), 0.70, outcome="ok")
     reopened = SpendLedger(tmp_path / "ledger.json", experiment_budget_usd=1.00)
     assert reopened.spent() == pytest.approx(0.70)
     assert reopened.cap(0.50) == pytest.approx(0.30)  # the next run gets only what is left
-    reopened.record("retry", model="claude-haiku-5-5", cost_usd=0.30, calls=1, tokens=10)
+    reopened.settle(
+        reopened.reserve(0.30, label="retry", model="claude-haiku-5-5"), 0.30, outcome="ok"
+    )
     with pytest.raises(ProviderError, match="experiment budget"):
         SpendLedger(tmp_path / "ledger.json", experiment_budget_usd=1.00).cap(0.50)
 
@@ -91,8 +93,9 @@ def test_cli_refuses_when_ledger_is_exhausted(
     from sandbox_agent.spend import SpendLedger  # noqa: PLC0415
 
     ledger = tmp_path / "ledger.json"
-    SpendLedger(ledger, 0.50).record(
-        "earlier", model="claude-haiku-5-5", cost_usd=0.50, calls=9, tokens=1
+    earlier = SpendLedger(ledger, 0.50)
+    earlier.settle(
+        earlier.reserve(0.50, label="earlier", model="claude-haiku-5-5"), 0.50, outcome="ok"
     )
     monkeypatch.setenv("SANDBOX_AGENT_OFFLINE", "0")
     monkeypatch.setenv("ANTHROPIC_API_KEY", KEY)

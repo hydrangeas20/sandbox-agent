@@ -11,9 +11,12 @@ from __future__ import annotations
 import os
 import re
 from pathlib import Path
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+if TYPE_CHECKING:
+    from sandbox_agent.spend import SpendLedger
 
 DEFAULT_IMAGE = "sandbox-agent-runner:0.1"
 SANDBOX_UID = 10001
@@ -152,6 +155,10 @@ class Settings(_Frozen):
     fixtures_dir: Path
     runs_dir: Path
     offline: bool = True
+    #: Required for real-model runs: total estimated spend across all runs (USD).
+    experiment_budget_usd: float | None = Field(default=None, gt=0, le=100)
+    #: Spend ledger file (default: ``<runs_dir>/spend-ledger.json``).
+    ledger_path: Path | None = None
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -159,4 +166,20 @@ class Settings(_Frozen):
         fixtures = Path(os.environ.get("SANDBOX_AGENT_FIXTURES", root / "fixtures" / "repos"))
         runs = Path(os.environ.get("SANDBOX_AGENT_RUNS", root / "runs"))
         offline = os.environ.get("SANDBOX_AGENT_OFFLINE", "1") != "0"
-        return cls(fixtures_dir=fixtures, runs_dir=runs, offline=offline)
+        budget = os.environ.get("SANDBOX_AGENT_EXPERIMENT_BUDGET_USD")
+        ledger = os.environ.get("SANDBOX_AGENT_LEDGER")
+        return cls(
+            fixtures_dir=fixtures,
+            runs_dir=runs,
+            offline=offline,
+            experiment_budget_usd=float(budget) if budget else None,
+            ledger_path=Path(ledger) if ledger else None,
+        )
+
+    def spend_ledger(self) -> SpendLedger | None:
+        if self.experiment_budget_usd is None:
+            return None
+        from sandbox_agent.spend import SpendLedger  # noqa: PLC0415
+
+        path = self.ledger_path or self.runs_dir / "spend-ledger.json"
+        return SpendLedger(path, self.experiment_budget_usd)

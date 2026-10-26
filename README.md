@@ -237,10 +237,16 @@ uv run sandbox-agent eval --provider anthropic --model claude-haiku-5-5 \
     --max-cost-usd 0.50 --max-total-cost-usd 3 --experiment-budget-usd 5
 ```
 
-Real-model runs **require** `--experiment-budget-usd`. Each run's estimated cost is
-appended to a local ledger (`runs/spend-ledger.json`, or `--ledger`), and the next
-run's cap is reduced to whatever remains. Budgets are checked **before** every call
-against a worst-case estimate and updated from the API's reported `usage`. Failed
+Real-model runs **require** `--experiment-budget-usd`. Before **each** request the
+adapter reserves its worst-case cost in a local ledger (`runs/spend-ledger.json`,
+or `--ledger`); the reservation is written atomically (fsync + rename, under a file
+lock) before the request is sent, refused if it would exceed the experiment budget,
+and settled afterwards with the actual cost from the API's `usage`. If the process
+is interrupted, killed or crashes mid-request, the reservation stays and keeps
+counting, so spend is over-counted rather than lost; `sandbox-agent ledger
+--experiment-budget-usd 5` shows settled and unsettled entries. Retries are separate
+requests with their own reservations against the same budget. A corrupt ledger
+blocks further requests. Failed
 requests count as calls; a timeout, reset or 5xx is charged at the worst-case
 estimate because it may have been billed, while 400/401/403/404/413/429 are charged
 nothing. These are estimates: the Console's usage page is authoritative, and a

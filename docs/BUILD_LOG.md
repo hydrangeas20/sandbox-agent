@@ -108,3 +108,8 @@ Concise per-milestone progress entries. Newest last.
   - There was no budget across invocations. Now a spend ledger caps all real-model runs together, and `--experiment-budget-usd` is required.
   - 9 failing-first tests (7 failed before the fix). Full suite 370 passed.
 - No live call was made: this cloud session has no API credential for the adapter (`ANTHROPIC_API_KEY` unset; Claude Code's own session credentials are not used).
+
+## Experiment ledger: reservations (2026-10-26)
+- Replaced the post-run ledger record (spend from an interrupted run was lost) with per-request reservations. The worst-case estimate is reserved under `flock` and written atomically (temp file + fsync + rename + directory fsync) **before** the request is sent, and is refused if it would exceed the experiment budget. It is settled afterwards with the cost from `usage`, the worst case for ambiguous failures, or 0 for pre-processing rejections. Interrupted, killed or crashed requests stay reserved and keep counting. A corrupt ledger fails closed. Retries reserve against the same budget. The ledger travels in `Settings`, so the CLI, eval and API paths all require it for real-model use. New `sandbox-agent ledger` command.
+- 12 failing-first tests (12/12 failed before): reservation on disk before send, settlement of success and failures, KeyboardInterrupt, real SIGKILL of a subprocess mid-request (the orphaned reservation still blocks overspend), retries, per-request experiment cap, failed atomic write keeps the previous ledger, corrupt ledger, 5 concurrent writers × 10 requests with no lost updates, and refusal of a real provider without a ledger.
+- Offline checks: `make ci` 382 passed; security suites 285/0/0; demo succeeded. No paid calls.

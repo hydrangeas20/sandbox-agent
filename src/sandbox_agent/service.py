@@ -101,7 +101,18 @@ def default_provider_factory(settings: Settings) -> ProviderFactory:
             AnthropicProvider,
         )
 
-        return AnthropicProvider(model=req.model or DEFAULT_MODEL, budget=req.model_budget)
+        ledger = settings.spend_ledger()
+        if ledger is None:
+            raise ProviderError(
+                "real-model runs require an experiment budget "
+                "(--experiment-budget-usd or SANDBOX_AGENT_EXPERIMENT_BUDGET_USD)"
+            )
+        return AnthropicProvider(
+            model=req.model or DEFAULT_MODEL,
+            budget=req.model_budget,
+            ledger=ledger,
+            ledger_label=req.fixture,
+        )
 
     return make
 

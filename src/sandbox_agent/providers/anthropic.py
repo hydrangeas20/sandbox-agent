@@ -34,6 +34,7 @@ from typing import Any
 from sandbox_agent.config import ModelBudget
 from sandbox_agent.errors import ProviderBudgetExceeded, ProviderError, ProviderHTTPError
 from sandbox_agent.providers.base import SYSTEM_PROMPT, Transcript
+from sandbox_agent.spend import SpendLedger
 from sandbox_agent.tools import TOOL_SPECS
 
 API_URL = "https://api.anthropic.com/v1/messages"
@@ -135,10 +136,13 @@ class AnthropicProvider:
     def __init__(
         self,
         model: str = DEFAULT_MODEL,
+        *,
         api_key: str | None = None,
         transport: Transport | None = None,
         budget: ModelBudget | None = None,
         clock: Callable[[], float] = time.monotonic,
+        ledger: SpendLedger | None = None,
+        ledger_label: str = "task",
     ) -> None:
         key = api_key if api_key is not None else os.environ.get("ANTHROPIC_API_KEY")
         if not key:
@@ -153,6 +157,8 @@ class AnthropicProvider:
         self.budget = budget or ModelBudget()
         self._transport = transport or _urllib_transport
         self._clock = clock
+        self._ledger = ledger
+        self._ledger_label = ledger_label
         self.usage = Usage()
         self.last_call: dict[str, Any] | None = None
         self._last_input_tokens = 0
@@ -240,7 +246,8 @@ class AnthropicProvider:
         cost += body["max_tokens"] * p_out / 1e6
         return est_input, cost
 
-    def _check_budget(self, body: dict[str, Any]) -> None:
+    def _check_budget(self, body: dict[str, Any]) -> float:
+        """Raise if the next call could exceed a per-task budget; return its worst-case cost."""
         b, u = self.budget, self.usage
         if u.calls >= b.max_model_calls:
             raise ProviderBudgetExceeded(f"model call budget reached ({b.max_model_calls} calls)")
@@ -256,6 +263,7 @@ class AnthropicProvider:
                 f"cost budget would be exceeded (${u.cost_usd:.4f} used, next call up to "
                 f"${est_cost:.4f}, limit ${b.max_cost_usd:.2f})"
             )
+        return est_cost
 
     def _record(self, response: dict[str, Any], latency_ms: int) -> dict[str, Any]:
         raw = response.get("usage")
@@ -294,6 +302,7 @@ class AnthropicProvider:
         return {
             **call,
             "cost_usd": round(cost, 6),
+            "exact_cost_usd": cost,
             "latency_ms": latency_ms,
             "stop_reason": stop if isinstance(stop, str) and len(stop) < 32 else None,
             "usage_reported": bool(usage),
@@ -303,7 +312,14 @@ class AnthropicProvider:
 
     def next_action(self, transcript: Transcript) -> Any:
         body = self.build_request(transcript)
-        self._check_budget(body)
+        est_cost = self._check_budget(body)
+        # Reserve the worst case in the experiment ledger *before* sending. If this
+        # process dies before settling, the reservation keeps counting.
+        reservation = (
+            self._ledger.reserve(est_cost, label=self._ledger_label, model=self.model)
+            if self._ledger is not None
+            else None
+        )
         headers = {
             "x-api-key": self._key,
             "anthropic-version": API_VERSION,
@@ -315,9 +331,8 @@ class AnthropicProvider:
             response = self._transport(body, headers, self.budget.request_timeout_s)
         except ProviderError as exc:
             status = exc.status if isinstance(exc, ProviderHTTPError) else None
-            charged = (
-                0.0 if status in _UNBILLED_STATUSES else self.estimate_worst_case_cost(body)[1]
-            )
+            charged = 0.0 if status in _UNBILLED_STATUSES else est_cost
+            basis = "none (rejected before processing)" if not charged else "worst-case estimate"
             self.usage.cost_usd += charged
             self.usage.latency_ms.append(int((self._clock() - started) * 1000))
             self.last_call = {
@@ -325,20 +340,41 @@ class AnthropicProvider:
                 "error": str(exc)[:200],
                 "http_status": status,
                 "cost_usd": round(charged, 6),
-                "cost_basis": "none (rejected before processing)"
-                if not charged
-                else "worst-case estimate",
+                "cost_basis": basis,
                 "latency_ms": self.usage.latency_ms[-1],
                 "usage_reported": False,
             }
+            self._settle(reservation, charged, outcome="failed", basis=basis)
             raise
+        # KeyboardInterrupt/SystemExit/crash: not caught, so the reservation stays counted.
         if not isinstance(response, dict):
+            self.usage.cost_usd += est_cost
+            self._settle(reservation, est_cost, outcome="failed", basis="worst-case estimate")
             raise ProviderError("anthropic API returned a non-object response")
         self.last_call = self._record(response, int((self._clock() - started) * 1000))
+        call_cost = float(self.last_call["exact_cost_usd"])
+        basis = "reported usage"
         if not self.last_call["usage_reported"]:
             # Without usage we cannot bound cost: charge the worst case and continue.
-            self.usage.cost_usd += self.estimate_worst_case_cost(body)[1]
+            self.usage.cost_usd += est_cost
+            call_cost, basis = est_cost, "worst-case estimate (no usage reported)"
+        tokens = sum(
+            int(self.last_call[k])
+            for k in (
+                "input_tokens",
+                "output_tokens",
+                "cache_creation_input_tokens",
+                "cache_read_input_tokens",
+            )
+        )
+        self._settle(reservation, call_cost, outcome="ok", basis=basis, tokens=tokens)
         return parse_response(response)
+
+    def _settle(
+        self, reservation: str | None, cost: float, *, outcome: str, basis: str, tokens: int = 0
+    ) -> None:
+        if self._ledger is not None and reservation is not None:
+            self._ledger.settle(reservation, cost, outcome=outcome, basis=basis, tokens=tokens)
 
     def usage_summary(self) -> dict[str, Any]:
         return {
