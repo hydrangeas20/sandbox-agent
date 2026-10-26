@@ -1,0 +1,90 @@
+........................................................................ [ 91%]
+.......                                                                  [100%]
+=============================== warnings summary ===============================
+.venv/lib/python3.12/site-packages/fastapi/testclient.py:1
+  <repo>/.venv/lib/python3.12/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+==================================== PASSES ====================================
+=========================== short test summary info ============================
+PASSED tests/test_security_review.py::test_sr01_verify_rejects_weak_security_options[no_profile]
+PASSED tests/test_security_review.py::test_sr01_verify_rejects_weak_security_options[allow_all_profile]
+PASSED tests/test_security_review.py::test_sr01_verify_rejects_weak_security_options[unconfined]
+PASSED tests/test_security_review.py::test_sr01_verify_rejects_weak_security_options[selinux_disabled]
+PASSED tests/test_security_review.py::test_sr01_verify_rejects_weak_security_options[apparmor]
+PASSED tests/test_security_review.py::test_sr01_verify_rejects_weak_security_options[paths]
+PASSED tests/test_security_review.py::test_sr01_verify_rejects_tampered_pinned_profile
+PASSED tests/test_security_review.py::test_sr01_verify_rejects_apparmor_unconfined_and_entrypoint
+PASSED tests/test_security_review.py::test_sr01_create_args_pin_profile_and_wrap_command
+PASSED tests/test_security_review.py::test_sr02_verify_rejects_image_provided_env
+PASSED tests/test_security_review.py::test_sr03_editing_tests_cannot_produce_success
+PASSED tests/test_security_review.py::test_sr03_protected_path_variants[tests/test_core.py]
+PASSED tests/test_security_review.py::test_sr03_protected_path_variants[./tests/test_core.py]
+PASSED tests/test_security_review.py::test_sr03_protected_path_variants[tests//test_core.py]
+PASSED tests/test_security_review.py::test_sr06_fifo_in_fixture_does_not_hang
+PASSED tests/test_security_review.py::test_sr06_fifo_fixture_task_fails_fast
+PASSED tests/test_security_review.py::test_sr07_hard_link_in_fixture_rejected
+PASSED tests/test_security_review.py::test_sr08_directory_swapped_during_copy_is_not_followed
+PASSED tests/test_security_review.py::test_sr08_file_growth_during_copy_respects_limit
+PASSED tests/test_security_review.py::test_sr09_intermediate_directory_swap_is_not_followed
+PASSED tests/test_security_review.py::test_sr09_all_workspace_opens_are_descriptor_relative
+PASSED tests/test_security_review.py::test_sr10_unreadable_fixture_file_is_workspace_error
+PASSED tests/test_security_review.py::test_sr10_unexpected_provider_exception_is_contained
+PASSED tests/test_security_review.py::test_sr10_unexpected_tool_exception_is_execution_error
+PASSED tests/test_security_review.py::test_sr11_api_rejects_foreign_host_header
+PASSED tests/test_security_review.py::test_sr11_text_plain_post_is_rejected
+PASSED tests/test_security_review.py::test_sr12_credential_named_keys_redacted_when_nested[ANTHROPIC_API_KEY]
+PASSED tests/test_security_review.py::test_sr12_credential_named_keys_redacted_when_nested[client_secret]
+PASSED tests/test_security_review.py::test_sr12_credential_named_keys_redacted_when_nested[access_token]
+PASSED tests/test_security_review.py::test_sr12_credential_named_keys_redacted_when_nested[refresh_token]
+PASSED tests/test_security_review.py::test_sr12_credential_named_keys_redacted_when_nested[Proxy-Authorization]
+PASSED tests/test_security_review.py::test_sr12_credential_named_keys_redacted_when_nested[x-goog-api-key]
+PASSED tests/test_security_review.py::test_sr12_credential_named_keys_redacted_when_nested[private_key]
+PASSED tests/test_security_review.py::test_sr12_credential_named_keys_redacted_when_nested[db_password]
+PASSED tests/test_security_review.py::test_sr12_credential_named_keys_redacted_when_nested[AWS_SECRET_ACCESS_KEY]
+PASSED tests/test_security_review.py::test_sr12_credential_named_keys_redacted_when_nested[sessionToken]
+PASSED tests/test_security_review.py::test_sr12_credential_named_keys_redacted_when_nested[credentials]
+PASSED tests/test_security_review.py::test_sr12_encoded_registered_secret_redacted
+PASSED tests/test_security_review.py::test_sr12_custom_credential_env_var_values_redacted
+PASSED tests/test_security_review.py::test_sr12_unusual_credential_formats[basic_auth]
+PASSED tests/test_security_review.py::test_sr12_unusual_credential_formats[token_header]
+PASSED tests/test_security_review.py::test_sr12_unusual_credential_formats[url_userinfo]
+PASSED tests/test_security_review.py::test_sr12_unusual_credential_formats[aws_assignment]
+PASSED tests/test_security_review.py::test_sr12_unusual_credential_formats[json_key]
+PASSED tests/test_security_review.py::test_sr12_unusual_credential_formats[jwt]
+PASSED tests/test_security_review.py::test_sr12_test_output_never_enters_trace
+PASSED tests/test_security_review.py::test_sr14_reader_keeps_head_and_tail
+PASSED tests/test_security_review.py::test_sr03_test_config_policy_and_eval_files_protected[conftest.py]
+PASSED tests/test_security_review.py::test_sr03_test_config_policy_and_eval_files_protected[pkg/conftest.py]
+PASSED tests/test_security_review.py::test_sr03_test_config_policy_and_eval_files_protected[pyproject.toml]
+PASSED tests/test_security_review.py::test_sr03_test_config_policy_and_eval_files_protected[setup.cfg]
+PASSED tests/test_security_review.py::test_sr03_test_config_policy_and_eval_files_protected[tox.ini]
+PASSED tests/test_security_review.py::test_sr03_test_config_policy_and_eval_files_protected[pytest.ini]
+PASSED tests/test_security_review.py::test_sr03_test_config_policy_and_eval_files_protected[sitecustomize.py]
+PASSED tests/test_security_review.py::test_sr03_test_config_policy_and_eval_files_protected[usercustomize.py]
+PASSED tests/test_security_review.py::test_sr03_test_config_policy_and_eval_files_protected[pkg/evil.pth]
+PASSED tests/test_security_review.py::test_sr03_test_config_policy_and_eval_files_protected[.sandbox-agent/policy.toml]
+PASSED tests/test_security_review.py::test_sr03_test_config_policy_and_eval_files_protected[evals/tasks.json]
+PASSED tests/test_security_review.py::test_sr03_final_diff_gate_catches_out_of_band_changes
+PASSED tests/test_security_review.py::test_sr04_reaper_spares_live_runs_and_removes_orphans
+PASSED tests/test_security_review.py::test_sr04_workspace_reaper
+PASSED tests/test_security_review.py::test_sr12_redaction_is_not_quadratic[word_run]
+PASSED tests/test_security_review.py::test_sr12_redaction_is_not_quadratic[embedded_name]
+PASSED tests/test_security_review.py::test_sr12_redaction_is_not_quadratic[scheme_like]
+PASSED tests/test_security_review.py::test_sr12_redaction_is_not_quadratic[bearer_run]
+PASSED tests/test_security_review.py::test_sr12_redaction_is_not_quadratic[pem_without_end]
+PASSED tests/test_security_review_docker.py::test_sr01_pinned_profile_is_enforced
+PASSED tests/test_security_review_docker.py::test_sr01_runtime_attestation_catches_weak_seccomp[allow_all]
+PASSED tests/test_security_review_docker.py::test_sr01_runtime_attestation_catches_weak_seccomp[unconfined]
+PASSED tests/test_security_review_docker.py::test_sr02_image_with_extra_env_fails_closed
+PASSED tests/test_security_review_docker.py::test_sr02_container_env_is_exactly_configured
+PASSED tests/test_security_review_docker.py::test_sr04_container_stops_when_host_process_dies
+PASSED tests/test_security_review_docker.py::test_sr04_pid1_watchdog_cannot_be_killed_or_traced
+PASSED tests/test_security_review_docker.py::test_sr05_output_flood_is_stopped_early[stdout]
+PASSED tests/test_security_review_docker.py::test_sr05_output_flood_is_stopped_early[stderr]
+PASSED tests/test_security_review_docker.py::test_sr13_oom_kill_is_attributed_with_cgroup_evidence
+PASSED tests/test_security_review_docker.py::test_sr13_unrelated_sigkill_is_not_called_oom
+PASSED tests/test_security_review_docker.py::test_sr04_sigterm_to_controller_cleans_up_promptly
+PASSED tests/test_security_review_docker.py::test_sr04_sigkill_to_controller_is_recovered
+79 passed, 1 warning in 25.96s
