@@ -1,0 +1,63 @@
+[project]
+name = "sandbox-agent"
+version = "0.1.0"
+description = "Security-conscious AI coding agent that runs untrusted coding tasks inside an isolated Docker sandbox."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "hydrangeas20", email = "hamda@duck.com" }]
+dependencies = [
+    "fastapi>=0.115,<1",
+    "pydantic>=2.8,<3",
+    "uvicorn>=0.30,<1",
+]
+
+[project.scripts]
+sandbox-agent = "sandbox_agent.cli:main"
+
+[dependency-groups]
+dev = [
+    "httpx>=0.27,<1",
+    "mypy>=1.11",
+    "pytest>=8.3",
+    "ruff>=0.6",
+]
+
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/sandbox_agent"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "tests"]
+extend-exclude = ["fixtures"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "S", "SIM", "RUF", "PL", "PT", "TRY", "N"]
+ignore = [
+    "PLR0913",  # explicit keyword arguments are clearer than config bags here
+    "PLR2004",  # magic values in tests and limits are intentional
+    "TRY003",   # descriptive exception messages
+    "S603",     # subprocess without shell: argv is built from a frozen config; see sandbox.py
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "S108", "PLR0915", "S105", "S106"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+mypy_path = "src"
+packages = ["sandbox_agent"]
+plugins = ["pydantic.mypy"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"
+markers = [
+    "docker: requires a running Docker daemon and the sandbox image",
+]

@@ -1,0 +1,44 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - run: uv sync --frozen
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+      - run: uv run mypy
+      - name: Unit tests (no Docker)
+        run: uv run pytest -m "not docker"
+
+  sandbox:
+    runs-on: ubuntu-24.04
+    needs: quality
+    env:
+      SANDBOX_AGENT_REQUIRE_DOCKER: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - run: uv sync --frozen
+      - name: Build sandbox image
+        run: docker build --build-arg BASE_IMAGE=python:3.12-slim -t sandbox-agent-runner:0.1 sandbox
+      - name: Preflight isolation checks
+        run: uv run sandbox-agent preflight
+      - name: Docker, end-to-end and adversarial tests
+        run: uv run pytest -m docker -v
+      - name: Offline demo
+        run: uv run sandbox-agent demo
