@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from pathlib import Path, PurePosixPath
 
 from sandbox_agent.errors import PolicyViolation
 from sandbox_agent.sandbox import ContainerCommand
@@ -49,3 +50,49 @@ def build_command(name: str, selector: str | None = None) -> ContainerCommand:
             "selector must be a dotted test id under 'tests', e.g. tests.test_core.MyTest",
         )
     return ContainerCommand(argv=(*spec.selector_argv, selector))
+
+
+# ---------------------------------------------------------------------- protected paths
+#
+# The repository's own tests decide success, so anything that defines, discovers or
+# configures them is off limits to the agent, as are trusted policy and evaluation
+# files and files the interpreter executes at start-up (SR-03). Enforced twice: by
+# ``apply_patch`` and by the controller's final-diff gate in ``service.run_task``.
+
+#: Directory prefixes (first path component) the agent may not modify.
+PROTECTED_DIRS = ("tests", "test", ".sandbox-agent", "evals", ".github")
+#: File names protected wherever they appear.
+PROTECTED_NAMES = frozenset(
+    {
+        "conftest.py",
+        "pyproject.toml",
+        "setup.cfg",
+        "setup.py",
+        "tox.ini",
+        "pytest.ini",
+        "noxfile.py",
+        "unittest.cfg",
+        ".coveragerc",
+        "sitecustomize.py",
+        "usercustomize.py",
+    }
+)
+#: Suffixes protected wherever they appear (``.pth`` files run code at interpreter start).
+PROTECTED_SUFFIXES = (".pth",)
+
+
+def protected_reason(rel_path: str, extra_dirs: tuple[str, ...] = ()) -> str | None:
+    """Why ``rel_path`` (canonical, workspace-relative) is protected, or ``None``."""
+    parts = PurePosixPath(rel_path).parts
+    if not parts:
+        return None
+    for prefix in (*PROTECTED_DIRS, *extra_dirs):
+        prefix_parts = PurePosixPath(prefix.strip("/")).parts
+        if tuple(parts[: len(prefix_parts)]) == prefix_parts:
+            return f"{prefix}/ is protected"
+    name = parts[-1]
+    if name in PROTECTED_NAMES:
+        return f"{name} is protected"
+    if Path(name).suffix in PROTECTED_SUFFIXES:
+        return f"*{Path(name).suffix} files are protected"
+    return None

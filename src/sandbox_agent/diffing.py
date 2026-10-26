@@ -71,3 +71,30 @@ def _text(entry: tuple[str, bytes | str] | None) -> str | None:
         return data.decode("utf-8")
     except UnicodeDecodeError:
         return None
+
+
+def diff_policy_violations(original: Path, modified: Path, changed: list[str]) -> list[str]:
+    """Final-diff allowlist, checked at the controller boundary (SR-03).
+
+    Independently of how the workspace was changed, the only acceptable result is a
+    modification of an existing, non-protected regular file. Additions, deletions,
+    symlink or type changes, and any change under a protected path are violations.
+    """
+    from sandbox_agent.policy import protected_reason  # noqa: PLC0415 - avoid import cycle
+
+    violations: list[str] = []
+    for rel in changed:
+        reason = protected_reason(rel)
+        if reason is not None:
+            violations.append(f"{rel}: {reason}")
+            continue
+        kinds = []
+        for root in (original, modified):
+            try:
+                mode = os.lstat(root / rel).st_mode
+                kinds.append("file" if stat.S_ISREG(mode) else "other")
+            except FileNotFoundError:
+                kinds.append("missing")
+        if kinds != ["file", "file"]:
+            violations.append(f"{rel}: only modifications of existing files are allowed ({kinds})")
+    return violations

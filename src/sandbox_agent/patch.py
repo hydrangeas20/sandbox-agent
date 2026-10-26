@@ -16,6 +16,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from sandbox_agent.config import PatchLimits
 from sandbox_agent.errors import PolicyViolation
+from sandbox_agent.policy import protected_reason
 from sandbox_agent.workspace import Workspace
 
 _MAX_TEXT = 64 * 1024
@@ -59,6 +60,12 @@ def apply_patch(workspace: Workspace, edits: list[Edit], limits: PatchLimits) ->
             raise PolicyViolation("patch.noop", f"edit {index} does not change anything")
         resolved = workspace.resolve(edit.path, kind="file")
         key = resolved.relative_to(workspace.path).as_posix()
+        reason = protected_reason(key, limits.protected_paths)
+        if reason is not None:
+            raise PolicyViolation(
+                "patch.protected_path",
+                f"edit {index}: {key}: {reason} (tests and their configuration decide success)",
+            )
         canonical[key] = edit.path
         content = pending[key] if key in pending else workspace.read_text(edit.path)
         count = content.count(edit.old)

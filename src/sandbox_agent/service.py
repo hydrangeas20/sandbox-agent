@@ -12,7 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from sandbox_agent.agent import AgentController, AgentRunResult, TaskStatus
 from sandbox_agent.config import AgentBudget, SandboxConfig, Settings, WorkspaceLimits
-from sandbox_agent.diffing import unified_diff
+from sandbox_agent.diffing import diff_policy_violations, unified_diff
 from sandbox_agent.errors import (
     FixtureError,
     ProviderError,
@@ -88,7 +88,7 @@ def default_provider_factory(settings: Settings) -> ProviderFactory:
     return make
 
 
-def run_task(
+def run_task(  # noqa: PLR0915 - linear orchestration with explicit fail-closed branches
     req: TaskRequest,
     settings: Settings,
     *,
@@ -99,6 +99,7 @@ def run_task(
 ) -> TaskResult:
     task_id = uuid.uuid4().hex
     tracer = Tracer(task_id)
+    reaped_workspaces = Workspace.reap_stale()
     started = time.monotonic()
     registry = FixtureRegistry(settings.fixtures_dir)
     fixture_dir = registry.resolve(req.fixture)  # raises FixtureError on bad names
@@ -109,6 +110,7 @@ def run_task(
         provider=req.provider,
         task=req.task,
         fixture_sha256=before,
+        reaped_workspaces=reaped_workspaces,
     )
     factory = provider_factory or default_provider_factory(settings)
 
@@ -131,6 +133,11 @@ def run_task(
             agent_result = controller.run(req.task)
             status, reason = agent_result.status, agent_result.reason
             diff, changed = unified_diff(fixture_dir, ws.path)
+            violations = diff_policy_violations(fixture_dir, ws.path, changed)
+            if violations:
+                status = "policy_aborted"
+                reason = "DIFF POLICY VIOLATION: " + "; ".join(violations)
+                tracer.emit("diff_policy_violation", violations=violations)
     except (SandboxUnavailableError, SandboxIsolationError) as exc:
         status, reason = "sandbox_error", str(exc)
         tracer.emit("sandbox_error", error=str(exc))
@@ -140,6 +147,9 @@ def run_task(
     except (WorkspaceError, FixtureError) as exc:
         status, reason = "failed", f"workspace error: {exc}"
         tracer.emit("workspace_error", error=str(exc))
+    except Exception as exc:
+        status, reason = "failed", f"internal error ({type(exc).__name__})"
+        tracer.emit("internal_error", error_type=type(exc).__name__)
 
     after = tree_manifest(fixture_dir)
     unchanged = before == after
