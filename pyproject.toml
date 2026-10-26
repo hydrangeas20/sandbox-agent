@@ -47,6 +47,8 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S101", "S108", "PLR0915", "S105", "S106"]
+# Builds a container rootfs: /tmp and /etc/passwd here are paths inside the image.
+"scripts/bootstrap_base_image.py" = ["S105", "S108"]
 
 [tool.mypy]
 python_version = "3.11"

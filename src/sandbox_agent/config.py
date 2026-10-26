@@ -19,6 +19,8 @@ DEFAULT_IMAGE = "sandbox-agent-runner:0.1"
 SANDBOX_UID = 10001
 SANDBOX_GID = 10001
 WORKSPACE_MOUNT = "/workspace"
+#: Path *inside the container*; backed by a private, size-capped, noexec tmpfs.
+CONTAINER_TMP = "/tmp"  # noqa: S108
 
 _IMAGE_RE = re.compile(
     r"^[a-z0-9][a-z0-9._/-]{0,127}(:[A-Za-z0-9._-]{1,128})?(@sha256:[0-9a-f]{64})?$"
