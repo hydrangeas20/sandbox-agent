@@ -34,7 +34,7 @@ packages = ["src/sandbox_agent"]
 line-length = 100
 target-version = "py311"
 src = ["src", "tests"]
-extend-exclude = ["fixtures"]
+extend-exclude = ["fixtures", "evals/heldout"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP", "S", "SIM", "RUF", "PL", "PT", "TRY", "N"]

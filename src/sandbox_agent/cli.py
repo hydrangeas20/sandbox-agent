@@ -115,6 +115,24 @@ def cmd_demo(args: argparse.Namespace, settings: Settings) -> int:
     return cmd_run(args, settings)
 
 
+def cmd_eval(args: argparse.Namespace, settings: Settings) -> int:
+    from sandbox_agent.evals import format_markdown, run_eval  # noqa: PLC0415
+
+    budget = ModelBudget(
+        **{k: v for k, v in {"max_cost_usd": args.max_cost_usd}.items() if v is not None}
+    )
+    summary = run_eval(
+        settings,
+        args.provider,
+        task_ids=args.task or None,
+        model=args.model,
+        per_task_budget=budget,
+        max_total_cost_usd=args.max_total_cost_usd,
+    )
+    print(format_markdown(summary))
+    return 0 if summary["passed"] == summary["tasks"] else 1
+
+
 def cmd_preflight(args: argparse.Namespace, settings: Settings) -> int:
     with tempfile.TemporaryDirectory(prefix="sandbox-agent-preflight-") as tmp:
         info = DockerSandbox(SandboxConfig(), Path(tmp)).preflight()
@@ -160,6 +178,14 @@ def build_parser() -> argparse.ArgumentParser:
     demo.add_argument("--scenario", default=None)
     demo.add_argument("--timeout", type=float, default=None)
     demo.set_defaults(func=cmd_demo)
+
+    ev = sub.add_parser("eval", help="run the evaluation suite (evals/tasks.json)")
+    ev.add_argument("--provider", choices=["scripted", "anthropic"], default="scripted")
+    ev.add_argument("--model", default=None)
+    ev.add_argument("--task", action="append", help="task id (repeatable); default: all")
+    ev.add_argument("--max-cost-usd", type=float, default=None, help="per-task cost cap")
+    ev.add_argument("--max-total-cost-usd", type=float, default=3.0, help="cap for the whole run")
+    ev.set_defaults(func=cmd_eval)
 
     sub.add_parser("preflight", help="check Docker isolation prerequisites").set_defaults(
         func=cmd_preflight

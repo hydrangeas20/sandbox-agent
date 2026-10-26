@@ -21,11 +21,13 @@ from sandbox_agent.config import (
 from sandbox_agent.diffing import diff_policy_violations, unified_diff
 from sandbox_agent.errors import (
     FixtureError,
+    PolicyViolation,
     ProviderError,
     SandboxIsolationError,
     SandboxUnavailableError,
     WorkspaceError,
 )
+from sandbox_agent.policy import protected_reason
 from sandbox_agent.providers.base import Provider
 from sandbox_agent.providers.scripted import SCENARIOS
 from sandbox_agent.sandbox import DockerSandbox
@@ -74,6 +76,9 @@ class TaskResult(BaseModel):
     fixture_sha256_after: str
     fixture_unchanged: bool
     duration_ms: int
+    #: Final contents of changed files (only with ``capture_changed_files=True``; used by
+    #: the evaluation harness to run held-out tests on the agent's result).
+    changed_files: dict[str, str] | None = None
     #: Real-model usage (tokens, estimated cost, latency); ``None`` for scripted runs.
     model_usage: dict[str, Any] | None = None
     trace: list[dict[str, Any]]
@@ -109,6 +114,7 @@ def run_task(  # noqa: PLR0915 - linear orchestration with explicit fail-closed 
     workspace_limits: WorkspaceLimits | None = None,
     provider_factory: ProviderFactory | None = None,
     cancel: threading.Event | None = None,
+    capture_changed_files: bool = False,
 ) -> TaskResult:
     task_id = uuid.uuid4().hex
     tracer = Tracer(task_id)
@@ -134,6 +140,7 @@ def run_task(  # noqa: PLR0915 - linear orchestration with explicit fail-closed 
     provider: Provider | None = None
     diff: str = ""
     changed: list[str] = []
+    changed_files: dict[str, str] | None = None
     try:
         provider = factory(req)
         provider_label = provider.name
@@ -147,6 +154,8 @@ def run_task(  # noqa: PLR0915 - linear orchestration with explicit fail-closed 
             agent_result = controller.run(req.task)
             status, reason = agent_result.status, agent_result.reason
             diff, changed = unified_diff(fixture_dir, ws.path)
+            if capture_changed_files:
+                changed_files = _read_changed(ws, changed)
             violations = diff_policy_violations(fixture_dir, ws.path, changed)
             if violations:
                 status = "policy_aborted"
@@ -186,6 +195,7 @@ def run_task(  # noqa: PLR0915 - linear orchestration with explicit fail-closed 
         fixture_unchanged=unchanged,
         duration_ms=int((time.monotonic() - started) * 1000),
         model_usage=_model_usage(provider),
+        changed_files=changed_files,
         trace=[],
     )
     tracer.emit(
@@ -199,6 +209,18 @@ def run_task(  # noqa: PLR0915 - linear orchestration with explicit fail-closed 
         model_usage=result.model_usage,
     )
     return result.model_copy(update={"trace": tracer.redacted_events()})
+
+
+def _read_changed(ws: Workspace, changed: list[str]) -> dict[str, str]:
+    files: dict[str, str] = {}
+    for rel in changed:
+        if protected_reason(rel):
+            continue
+        try:
+            files[rel] = ws.read_text(rel)
+        except PolicyViolation:
+            continue  # deleted/non-regular: reported by the diff gate instead
+    return files
 
 
 def _model_usage(provider: Provider | None) -> dict[str, Any] | None:
