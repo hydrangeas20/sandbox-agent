@@ -31,3 +31,10 @@ Concise per-milestone progress entries. Newest last.
 - `FixtureRegistry` maps a regex-validated *name* to a direct, non-symlink child of the registry; `tree_manifest()` hashes a tree without following links (used to prove the fixture is unchanged).
 - Cleanup is idempotent, refuses paths it did not create, and does not follow symlinks.
 - Tests: 46 workspace tests (15 traversal variants × read/write/resolve, 5 symlink variants, link swapped after copy, dir link in the middle, FIFO, binary, size and copy limits, mode stripping, cleanup safety, fixture-name validation) + 1 Docker test confirming the container cannot write or create links in the real workspace. 113/113 pass.
+
+## M5 — Tool contracts
+- Goal: structured, validated tools; no unrestricted shell.
+- Tools: `list_files`, `read_file` (line-numbered slices), `search` (literal substring only — no host-side regex, avoiding ReDoS), `apply_patch`, `run_tests`, `finish`. Inputs are Pydantic models with `extra="forbid"` and length bounds; outputs are `ToolResult` with distinct `policy_denial` / `invalid_arguments` / `execution_error` kinds so budgets can treat them differently.
+- `policy.py`: `run_tests` takes a command *name* (`unittest`) mapped to fixed argv, plus an optional selector matching `^tests(\.ident){0,6}$` — blocks flag injection (`--help`), arbitrary callables (`os.system`), and shell metacharacters.
+- `patch.py`: exact-match search/replace edits; each `old` must match exactly once; all edits validated in memory and resulting sizes checked before any write (atomic for validation failures).
+- Tests: 47 new (unknown tools incl. `_tool_finish`/`__init__` dispatch probes, 10 policy-denial cases that assert the runner was never called, 9 invalid-argument cases, patch ambiguity/no-match/no-op/traversal/size/atomicity, 6 malformed edit payloads, real sandbox `run_tests` on the buggy fixture → 6 run, `failures=2`). 161/161 pass.
