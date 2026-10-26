@@ -59,6 +59,32 @@ Out of scope (non-goals):
 | Service | `sandbox_agent.service` | Orchestrates one task end to end; computes diff and fixture integrity. |
 | Interfaces | `sandbox_agent.api`, `sandbox_agent.cli` | HTTP and command-line entry points. |
 
+### Repository layout
+
+```text
+src/sandbox_agent/
+  config.py      frozen isolation and budget models (unsafe values fail validation)
+  sandbox.py     the only process-spawning module: docker create/inspect/start/rm
+  workspace.py   disposable workspace, path policy, fixture registry, manifests
+  policy.py      command allowlist and selector validation
+  patch.py       exact-match atomic edits
+  tools.py       tool contracts and dispatch
+  agent.py       bounded controller and status semantics
+  providers/     scripted (including injection-following) and budgeted Anthropic adapter
+  spend.py       experiment spend ledger (per-request reservations)
+  ownership.py   controller identity for orphan recovery
+  evals.py       evaluation harness with held-out checks
+  seccomp/       pinned seccomp profile (Docker default + canary), provenance, license
+  trace.py       JSONL traces with emit-time redaction
+  service.py     end-to-end orchestration, diff, integrity check
+  cli.py, api.py
+sandbox/Dockerfile   runner image (flattened onto scratch, no RUN steps)
+sandbox/entry.py     trusted PID 1: attestation, env scrub, watchdog, exit report
+fixtures/repos/      paginator, slugify, roman, ledger, invoice, tempconv, stack, hostile
+evals/               tasks.json, held-out tests, results
+scripts/             adversarial report, seccomp profile build, base-image bootstrap, live-smoke helpers
+```
+
 ## 4. Task lifecycle
 
 1. Caller submits `{fixture, task, provider, budgets?}`.

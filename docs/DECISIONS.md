@@ -253,3 +253,36 @@ quadratic-time regression during the review (SR-12b), caught by a timing test.
 
 **Cost.** Traces cannot be used to debug test output; the model transcript is not
 persisted.
+
+## D19. Experiment spend ledger with per-request reservations
+
+**Decision.** Real-model runs require `--experiment-budget-usd`. Before each
+request, the adapter reserves the request's worst-case cost in a local ledger
+(`runs/spend-ledger.json`, or `--ledger`). The reservation is written atomically
+under a file lock (temp file, fsync, rename, directory fsync) before the request is
+sent, and is refused if it would exceed the experiment budget. It is settled
+afterwards with the actual cost from the API's `usage`.
+
+- Interrupted, killed or crashed requests stay reserved and keep counting, so spend
+  is over-counted rather than lost. `sandbox-agent ledger` shows settled and
+  unsettled entries.
+- Retries are separate requests with their own reservations against the same budget.
+- A corrupt ledger blocks further requests.
+- Failed requests count as calls. A timeout, reset or 5xx is charged at the
+  worst-case estimate because it may have been billed. 400/401/403/404/413/429 are
+  charged nothing.
+- Prices come from the
+  [official pricing page](https://platform.claude.com/docs/en/about-claude/pricing):
+  Haiku 5.5 (`claude-haiku-5-5`) at $0.10 / $0.50 per MTok input/output for prompts
+  up to 100k tokens (larger prompts are refused); Sonnet 5.5 at $2 / $10. Unknown
+  models are refused.
+- Each call is traced as a `model_call` event (tokens, cache tokens, estimated cost,
+  latency).
+
+**Why.** A post-run record loses the spend of a run that is interrupted mid-request.
+A reservation that is durable before the request leaves the process cannot be lost
+that way.
+
+**Cost.** Figures are estimates from published prices. The Anthropic Console is
+authoritative, and a Console spend limit is the only hard cap. The ledger is local:
+it does not carry across GitHub Actions runs (see [`LIVE_SMOKE.md`](LIVE_SMOKE.md)).

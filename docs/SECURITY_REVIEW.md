@@ -83,6 +83,9 @@ Measured on the build host (2 vCPU, cgroup v1), 5 runs of `make demo`:
 | End-to-end task, median | 1,770 ms | 1,495 ms |
 | One sandboxed `run_tests`, median | 801 ms | 692 ms |
 
+After the fix, the ranges were 1,409–1,547 ms end to end and 637–706 ms per
+`run_tests`, and all 5 runs succeeded with the fixture unchanged.
+
 The extra work (attestation, scrubbed env, watchdog, one extra `inspect`, reaper
 `ps`) is within run-to-run noise. The full test suite takes ~85 s (was ~40 s,
 mostly the new Docker-backed termination tests).
