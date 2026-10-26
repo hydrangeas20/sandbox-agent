@@ -133,3 +133,29 @@ absent, and the skip is reported, never silently treated as a pass.
 | AC-12 | Traces are JSONL, share one correlation ID, include per-tool `duration_ms`, policy denials and container resource outcomes, and contain no secret values (verified with planted secrets). | `test_trace.py`, `test_e2e.py` |
 | AC-13 | No API key or host environment variable reaches the container environment. | `test_sandbox_docker.py::test_env_is_minimal` |
 | AC-14 | `make ci` (ruff, ruff format check, mypy --strict, full pytest) passes. | CI workflow |
+
+## 8. Trace schema (v1)
+
+Traces are JSON Lines (`runs/<task_id>.trace.jsonl` from the CLI; inline as
+`trace` in API responses). Every event carries `v`, `cid` (task ID), `seq`
+(1-based, gap-free), `ts` (UTC ISO-8601), `t_ms` (ms since task start) and
+`event`. Envelope fields cannot be overwritten by event payloads.
+
+| Event | Key fields |
+|---|---|
+| `task_start` | `fixture`, `provider`, `task`, `fixture_sha256` |
+| `sandbox_preflight` | `server_version`, `security_options`, `cgroup_version`, `image` |
+| `agent_start` | `provider`, `budget` |
+| `provider_action` | `iteration`, `tool`, `args`, `thought`, `duration_ms` (provider latency) |
+| `invalid_provider_output` | `iteration`, `error`, `duration_ms` |
+| `tool_start` / `tool_end` | `iteration`, `tool`, `call_id`; end adds `ok`, `error_kind`, `denied_rule`, `duration_ms`, `resources` (container name, `timed_out`, `oom_killed`, stdout/stderr bytes) and a compact `result` (file contents are not traced) |
+| `policy_denial` | `iteration`, `tool`, `rule`, `detail` |
+| `agent_end` | status, reason, counters, `final_tests_passed`, `summary` |
+| `sandbox_error` / `provider_error` / `workspace_error` | `error` |
+| `task_end` | `status`, `reason`, `files_changed`, `fixture_unchanged`, `duration_ms`, `resources` (sandbox runs, sandbox ms, timeouts, OOM kills, output bytes, policy denials) |
+
+`provider_action` events contain the full tool arguments, so the action
+sequence can be replayed from the trace alone (`test_trace_is_sufficient_to_replay`).
+Redaction is applied at emit time (registered provider keys, well-known
+credential env vars, credential patterns, credential-named dict keys); a patch
+that itself contains secret-shaped text is therefore not exactly replayable.

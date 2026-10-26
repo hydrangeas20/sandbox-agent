@@ -168,8 +168,24 @@ def run_task(
         files_changed=changed,
         fixture_unchanged=unchanged,
         duration_ms=result.duration_ms,
+        resources=_resource_summary(tracer.events),
     )
     return result.model_copy(update={"trace": tracer.redacted_events()})
+
+
+def _resource_summary(events: list[dict[str, Any]]) -> dict[str, Any]:
+    runs = [e for e in events if e.get("event") == "tool_end" and e.get("resources")]
+    return {
+        "sandbox_runs": len(runs),
+        "sandbox_ms": sum(int(e.get("duration_ms") or 0) for e in runs),
+        "timeouts": sum(1 for e in runs if e["resources"].get("timed_out")),
+        "oom_kills": sum(1 for e in runs if e["resources"].get("oom_killed")),
+        "output_bytes": sum(
+            int(e["resources"].get("stdout_bytes", 0)) + int(e["resources"].get("stderr_bytes", 0))
+            for e in runs
+        ),
+        "policy_denials": sum(1 for e in events if e.get("event") == "policy_denial"),
+    }
 
 
 def _final_tests(events: list[dict[str, Any]]) -> TestSummary:

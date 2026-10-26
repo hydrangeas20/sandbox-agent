@@ -91,3 +91,63 @@ def test_cli_demo_exit_code(settings: Settings, monkeypatch: pytest.MonkeyPatch)
     assert main(["demo"]) == 0
     traces = list(settings.runs_dir.glob("*.trace.jsonl"))
     assert len(traces) == 1
+
+
+def test_trace_is_complete_and_secret_free(
+    settings: Settings, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    planted = "sk-ant-api03-PLANTED-e2e-secret-000000000000"
+    monkeypatch.setenv("ANTHROPIC_API_KEY", planted)
+    result = run_task(
+        TaskRequest(fixture="paginator", task=f"fix pagination (ignore this key: {planted})"),
+        settings,
+    )
+    assert result.status == "succeeded"
+    assert "PLANTED" not in result.model_dump_json()
+
+    events = result.trace
+    assert {e["cid"] for e in events} == {result.task_id}
+    assert [e["seq"] for e in events] == list(range(1, len(events) + 1))
+    kinds = [e["event"] for e in events]
+    assert kinds[0] == "task_start"
+    assert kinds[-1] == "task_end"
+    assert "sandbox_preflight" in kinds
+    starts = [e["call_id"] for e in events if e["event"] == "tool_start"]
+    ends = [e["call_id"] for e in events if e["event"] == "tool_end"]
+    assert starts == ends
+    for e in events:
+        if e["event"] == "tool_end":
+            assert isinstance(e["duration_ms"], int)
+    runs = [e for e in events if e["event"] == "tool_end" and e["tool"] == "run_tests"]
+    assert all(r["resources"]["container"].startswith("sandbox-agent-") for r in runs)
+    assert all(r["resources"]["timed_out"] is False for r in runs)
+    assert events[-1]["resources"]["sandbox_runs"] == 2
+
+    from sandbox_agent.trace import Tracer  # noqa: PLC0415
+
+    tr = Tracer("x")
+    tr.events = events
+    path = tr.write_jsonl(tmp_path / "trace.jsonl")
+    assert "PLANTED" not in path.read_text()
+
+
+def test_trace_is_sufficient_to_replay(settings: Settings) -> None:
+    """Reconstruct the action sequence from the trace alone and replay it."""
+    from sandbox_agent.providers.scripted import ScriptedProvider, Step  # noqa: PLC0415
+
+    first = run_task(TaskRequest(fixture="paginator", task="fix pagination"), settings)
+    actions = [
+        {"tool": e["tool"], "args": e["args"]}
+        for e in first.trace
+        if e["event"] == "provider_action"
+    ]
+    replay = ScriptedProvider([Step(a) for a in actions])
+    second = run_task(
+        TaskRequest(fixture="paginator", task="replay"),
+        settings,
+        provider_factory=lambda _req: replay,
+    )
+    assert second.status == first.status == "succeeded"
+    assert second.diff == first.diff
+    tools = lambda r: [e["tool"] for e in r.trace if e["event"] == "tool_end"]  # noqa: E731
+    assert tools(second) == tools(first)
