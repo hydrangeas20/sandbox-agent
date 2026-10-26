@@ -1,0 +1,2018 @@
+FFFFFFFFFFFFFFFFFFFFFFFFF.FFFFFFFFFFFFFFFFFFF.FFFFFFFFFFFFFFFFFFFFFFFFFF [ 97%]
+FF                                                                       [100%]
+=================================== FAILURES ===================================
+__________ test_sr01_verify_rejects_weak_security_options[no_profile] __________
+
+sandbox = <sandbox_agent.sandbox.DockerSandbox object at 0x7fdcaeb252e0>
+tmp_path = PosixPath('<tmp>
+secopt = ['no-new-privileges']
+
+    @pytest.mark.parametrize(
+        "secopt",
+        [
+            ["no-new-privileges"],  # daemon default applies; inspect cannot show which profile
+            ["no-new-privileges", 'seccomp={"defaultAction":"SCMP_ACT_ALLOW"}'],
+            ["no-new-privileges", "seccomp=unconfined"],
+            ["no-new-privileges", "label=disable"],
+            ["no-new-privileges", "apparmor=unconfined"],
+            ["no-new-privileges", "systempaths=unconfined"],
+        ],
+        ids=["no_profile", "allow_all_profile", "unconfined", "selinux_disabled", "apparmor", "paths"],
+    )
+    def test_sr01_verify_rejects_weak_security_options(
+        sandbox: DockerSandbox, tmp_path: Path, secopt: list[str]
+    ) -> None:
+        from sandbox_agent.errors import SandboxIsolationError  # noqa: PLC0415
+    
+        data = _with_secopt(sandbox, tmp_path / "wsroot", secopt)
+        with pytest.raises(SandboxIsolationError):
+>           sandbox.verify(data, tmp_path / "wsroot" / "ws")
+E           TypeError: DockerSandbox.verify() missing 1 required positional argument: 'image_env_keys'
+
+tests/test_security_review.py:89: TypeError
+______ test_sr01_verify_rejects_weak_security_options[allow_all_profile] _______
+
+sandbox = <sandbox_agent.sandbox.DockerSandbox object at 0x7fdcae645dc0>
+tmp_path = PosixPath('<tmp>
+secopt = ['no-new-privileges', 'seccomp={"defaultAction":"SCMP_ACT_ALLOW"}']
+
+    @pytest.mark.parametrize(
+        "secopt",
+        [
+            ["no-new-privileges"],  # daemon default applies; inspect cannot show which profile
+            ["no-new-privileges", 'seccomp={"defaultAction":"SCMP_ACT_ALLOW"}'],
+            ["no-new-privileges", "seccomp=unconfined"],
+            ["no-new-privileges", "label=disable"],
+            ["no-new-privileges", "apparmor=unconfined"],
+            ["no-new-privileges", "systempaths=unconfined"],
+        ],
+        ids=["no_profile", "allow_all_profile", "unconfined", "selinux_disabled", "apparmor", "paths"],
+    )
+    def test_sr01_verify_rejects_weak_security_options(
+        sandbox: DockerSandbox, tmp_path: Path, secopt: list[str]
+    ) -> None:
+        from sandbox_agent.errors import SandboxIsolationError  # noqa: PLC0415
+    
+        data = _with_secopt(sandbox, tmp_path / "wsroot", secopt)
+        with pytest.raises(SandboxIsolationError):
+>           sandbox.verify(data, tmp_path / "wsroot" / "ws")
+E           TypeError: DockerSandbox.verify() missing 1 required positional argument: 'image_env_keys'
+
+tests/test_security_review.py:89: TypeError
+__________ test_sr01_verify_rejects_weak_security_options[unconfined] __________
+
+sandbox = <sandbox_agent.sandbox.DockerSandbox object at 0x7fdcae50f290>
+tmp_path = PosixPath('<tmp>
+secopt = ['no-new-privileges', 'seccomp=unconfined']
+
+    @pytest.mark.parametrize(
+        "secopt",
+        [
+            ["no-new-privileges"],  # daemon default applies; inspect cannot show which profile
+            ["no-new-privileges", 'seccomp={"defaultAction":"SCMP_ACT_ALLOW"}'],
+            ["no-new-privileges", "seccomp=unconfined"],
+            ["no-new-privileges", "label=disable"],
+            ["no-new-privileges", "apparmor=unconfined"],
+            ["no-new-privileges", "systempaths=unconfined"],
+        ],
+        ids=["no_profile", "allow_all_profile", "unconfined", "selinux_disabled", "apparmor", "paths"],
+    )
+    def test_sr01_verify_rejects_weak_security_options(
+        sandbox: DockerSandbox, tmp_path: Path, secopt: list[str]
+    ) -> None:
+        from sandbox_agent.errors import SandboxIsolationError  # noqa: PLC0415
+    
+        data = _with_secopt(sandbox, tmp_path / "wsroot", secopt)
+        with pytest.raises(SandboxIsolationError):
+>           sandbox.verify(data, tmp_path / "wsroot" / "ws")
+E           TypeError: DockerSandbox.verify() missing 1 required positional argument: 'image_env_keys'
+
+tests/test_security_review.py:89: TypeError
+_______ test_sr01_verify_rejects_weak_security_options[selinux_disabled] _______
+
+sandbox = <sandbox_agent.sandbox.DockerSandbox object at 0x7fdcae5b8e30>
+tmp_path = PosixPath('<tmp>
+secopt = ['no-new-privileges', 'label=disable']
+
+    @pytest.mark.parametrize(
+        "secopt",
+        [
+            ["no-new-privileges"],  # daemon default applies; inspect cannot show which profile
+            ["no-new-privileges", 'seccomp={"defaultAction":"SCMP_ACT_ALLOW"}'],
+            ["no-new-privileges", "seccomp=unconfined"],
+            ["no-new-privileges", "label=disable"],
+            ["no-new-privileges", "apparmor=unconfined"],
+            ["no-new-privileges", "systempaths=unconfined"],
+        ],
+        ids=["no_profile", "allow_all_profile", "unconfined", "selinux_disabled", "apparmor", "paths"],
+    )
+    def test_sr01_verify_rejects_weak_security_options(
+        sandbox: DockerSandbox, tmp_path: Path, secopt: list[str]
+    ) -> None:
+        from sandbox_agent.errors import SandboxIsolationError  # noqa: PLC0415
+    
+        data = _with_secopt(sandbox, tmp_path / "wsroot", secopt)
+        with pytest.raises(SandboxIsolationError):
+>           sandbox.verify(data, tmp_path / "wsroot" / "ws")
+E           TypeError: DockerSandbox.verify() missing 1 required positional argument: 'image_env_keys'
+
+tests/test_security_review.py:89: TypeError
+___________ test_sr01_verify_rejects_weak_security_options[apparmor] ___________
+
+sandbox = <sandbox_agent.sandbox.DockerSandbox object at 0x7fdcae5ba720>
+tmp_path = PosixPath('<tmp>
+secopt = ['no-new-privileges', 'apparmor=unconfined']
+
+    @pytest.mark.parametrize(
+        "secopt",
+        [
+            ["no-new-privileges"],  # daemon default applies; inspect cannot show which profile
+            ["no-new-privileges", 'seccomp={"defaultAction":"SCMP_ACT_ALLOW"}'],
+            ["no-new-privileges", "seccomp=unconfined"],
+            ["no-new-privileges", "label=disable"],
+            ["no-new-privileges", "apparmor=unconfined"],
+            ["no-new-privileges", "systempaths=unconfined"],
+        ],
+        ids=["no_profile", "allow_all_profile", "unconfined", "selinux_disabled", "apparmor", "paths"],
+    )
+    def test_sr01_verify_rejects_weak_security_options(
+        sandbox: DockerSandbox, tmp_path: Path, secopt: list[str]
+    ) -> None:
+        from sandbox_agent.errors import SandboxIsolationError  # noqa: PLC0415
+    
+        data = _with_secopt(sandbox, tmp_path / "wsroot", secopt)
+        with pytest.raises(SandboxIsolationError):
+>           sandbox.verify(data, tmp_path / "wsroot" / "ws")
+E           TypeError: DockerSandbox.verify() missing 1 required positional argument: 'image_env_keys'
+
+tests/test_security_review.py:89: TypeError
+____________ test_sr01_verify_rejects_weak_security_options[paths] _____________
+
+sandbox = <sandbox_agent.sandbox.DockerSandbox object at 0x7fdcae5bb020>
+tmp_path = PosixPath('<tmp>
+secopt = ['no-new-privileges', 'systempaths=unconfined']
+
+    @pytest.mark.parametrize(
+        "secopt",
+        [
+            ["no-new-privileges"],  # daemon default applies; inspect cannot show which profile
+            ["no-new-privileges", 'seccomp={"defaultAction":"SCMP_ACT_ALLOW"}'],
+            ["no-new-privileges", "seccomp=unconfined"],
+            ["no-new-privileges", "label=disable"],
+            ["no-new-privileges", "apparmor=unconfined"],
+            ["no-new-privileges", "systempaths=unconfined"],
+        ],
+        ids=["no_profile", "allow_all_profile", "unconfined", "selinux_disabled", "apparmor", "paths"],
+    )
+    def test_sr01_verify_rejects_weak_security_options(
+        sandbox: DockerSandbox, tmp_path: Path, secopt: list[str]
+    ) -> None:
+        from sandbox_agent.errors import SandboxIsolationError  # noqa: PLC0415
+    
+        data = _with_secopt(sandbox, tmp_path / "wsroot", secopt)
+        with pytest.raises(SandboxIsolationError):
+>           sandbox.verify(data, tmp_path / "wsroot" / "ws")
+E           TypeError: DockerSandbox.verify() missing 1 required positional argument: 'image_env_keys'
+
+tests/test_security_review.py:89: TypeError
+_______________ test_sr01_verify_rejects_tampered_pinned_profile _______________
+
+sandbox = <sandbox_agent.sandbox.DockerSandbox object at 0x7fdcafc46b70>
+tmp_path = PosixPath('<tmp>
+
+    def test_sr01_verify_rejects_tampered_pinned_profile(
+        sandbox: DockerSandbox, tmp_path: Path
+    ) -> None:
+        from sandbox_agent.errors import SandboxIsolationError  # noqa: PLC0415
+>       from sandbox_agent.sandbox import load_seccomp_profile  # noqa: PLC0415
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       ImportError: cannot import name 'load_seccomp_profile' from 'sandbox_agent.sandbox' (<scratch>/prefix-wt/src/sandbox_agent/sandbox.py)
+
+tests/test_security_review.py:96: ImportError
+_________ test_sr01_verify_rejects_apparmor_unconfined_and_entrypoint __________
+
+sandbox = <sandbox_agent.sandbox.DockerSandbox object at 0x7fdcae5bbce0>
+tmp_path = PosixPath('<tmp>
+
+    def test_sr01_verify_rejects_apparmor_unconfined_and_entrypoint(
+        sandbox: DockerSandbox, tmp_path: Path
+    ) -> None:
+        from sandbox_agent.errors import SandboxIsolationError  # noqa: PLC0415
+    
+        ws = tmp_path / "wsroot" / "ws"
+        data = good_inspect(sandbox.config, ws)
+        data["AppArmorProfile"] = "unconfined"
+        with pytest.raises(SandboxIsolationError, match="apparmor"):
+>           sandbox.verify(data, ws)
+E           TypeError: DockerSandbox.verify() missing 1 required positional argument: 'image_env_keys'
+
+tests/test_security_review.py:116: TypeError
+______________ test_sr01_create_args_pin_profile_and_wrap_command ______________
+
+sandbox = <sandbox_agent.sandbox.DockerSandbox object at 0x7fdcae5b8f80>
+tmp_path = PosixPath('<tmp>
+
+    def test_sr01_create_args_pin_profile_and_wrap_command(
+        sandbox: DockerSandbox, tmp_path: Path
+    ) -> None:
+        from sandbox_agent.sandbox import ContainerCommand  # noqa: PLC0415
+    
+        args = sandbox.build_create_args(
+            tmp_path / "wsroot" / "ws", ContainerCommand(argv=("python3", "-c", "1")), "n"
+        )
+        seccomp = [a for a in args if a.startswith("seccomp=")]
+>       assert len(seccomp) == 1
+E       assert 0 == 1
+E        +  where 0 = len([])
+
+tests/test_security_review.py:132: AssertionError
+_________________ test_sr02_verify_rejects_image_provided_env __________________
+
+sandbox = <sandbox_agent.sandbox.DockerSandbox object at 0x7fdcae5b8ce0>
+tmp_path = PosixPath('<tmp>
+
+    def test_sr02_verify_rejects_image_provided_env(sandbox: DockerSandbox, tmp_path: Path) -> None:
+        from sandbox_agent.errors import SandboxIsolationError  # noqa: PLC0415
+    
+        ws = tmp_path / "wsroot" / "ws"
+        for extra in ("GPG_KEY=A035C8C19219BA821ECEA86B64E628F8D684696D", "LD_PRELOAD=/tmp/x.so"):
+            data = good_inspect(sandbox.config, ws)
+            data["Config"]["Env"].append(extra)
+            # Previously any key present in the *image* was accepted with any value.
+            with pytest.raises(SandboxIsolationError, match="env"):
+>               sandbox.verify(data, ws)
+E               TypeError: DockerSandbox.verify() missing 1 required positional argument: 'image_env_keys'
+
+tests/test_security_review.py:157: TypeError
+________________ test_sr03_editing_tests_cannot_produce_success ________________
+
+settings = Settings(fixtures_dir=PosixPath('<scratch>/prefix-wt/fixtures/repos'), runs_dir=PosixPath('<tmp> offline=True)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7fdcae5bd820>
+
+    def test_sr03_editing_tests_cannot_produce_success(
+        settings: Settings, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _stub_docker(monkeypatch, FakeRunner([PASS]))
+        provider = ScriptedProvider(
+            [
+                Step({"tool": "apply_patch", "args": {"edits": _tests_only_patch()}}),
+                Step({"tool": "run_tests", "args": {"command": "unittest"}}),
+                Step({"tool": "finish", "args": {"summary": "fixed"}}),
+            ]
+        )
+        result = run_task(
+            TaskRequest(fixture="paginator", task="fix"), settings, provider_factory=lambda _r: provider
+        )
+>       assert result.status != "succeeded"
+E       AssertionError: assert 'succeeded' != 'succeeded'
+E        +  where 'succeeded' = TaskResult(task_id='f332cb0a2eaa4781b0ca53cb9d441468', fixture='paginator', provider='scripted', status='succeeded', r...ox_runs': 1, 'sandbox_ms': 0, 'timeouts': 0, 'oom_kills': 0, 'sigkills': 0, 'output_bytes': 25, 'policy_denials': 0}}]).status
+
+tests/test_security_review.py:187: AssertionError
+____________ test_sr03_protected_path_variants[tests/test_core.py] _____________
+
+fixtures_dir = PosixPath('<scratch>/prefix-wt/fixtures/repos')
+tmp_path = PosixPath('<tmp>
+path = 'tests/test_core.py'
+
+    @pytest.mark.parametrize(
+        "path", ["tests/test_core.py", "./tests/test_core.py", "tests//test_core.py"]
+    )
+    def test_sr03_protected_path_variants(fixtures_dir: Path, tmp_path: Path, path: str) -> None:
+        with Workspace.create(fixtures_dir / "paginator", LIMITS, base_dir=tmp_path) as ws:
+            tools = ToolExecutor(ToolContext(ws, FakeRunner()))
+            edit = {"path": path, "old": "import unittest", "new": "import unittest  # x"}
+            res = tools.execute("apply_patch", {"edits": [edit]})
+>           assert res.denied_rule == "patch.protected_path"
+E           AssertionError: assert None == 'patch.protected_path'
+E            +  where None = ToolResult(tool='apply_patch', ok=True, output={'files_changed': ['tests/test_core.py'], 'edits_applied': 1}, error_kind=None, error=None, denied_rule=None).denied_rule
+
+tests/test_security_review.py:201: AssertionError
+___________ test_sr03_protected_path_variants[./tests/test_core.py] ____________
+
+fixtures_dir = PosixPath('<scratch>/prefix-wt/fixtures/repos')
+tmp_path = PosixPath('<tmp>
+path = './tests/test_core.py'
+
+    @pytest.mark.parametrize(
+        "path", ["tests/test_core.py", "./tests/test_core.py", "tests//test_core.py"]
+    )
+    def test_sr03_protected_path_variants(fixtures_dir: Path, tmp_path: Path, path: str) -> None:
+        with Workspace.create(fixtures_dir / "paginator", LIMITS, base_dir=tmp_path) as ws:
+            tools = ToolExecutor(ToolContext(ws, FakeRunner()))
+            edit = {"path": path, "old": "import unittest", "new": "import unittest  # x"}
+            res = tools.execute("apply_patch", {"edits": [edit]})
+>           assert res.denied_rule == "patch.protected_path"
+E           AssertionError: assert None == 'patch.protected_path'
+E            +  where None = ToolResult(tool='apply_patch', ok=True, output={'files_changed': ['tests/test_core.py'], 'edits_applied': 1}, error_kind=None, error=None, denied_rule=None).denied_rule
+
+tests/test_security_review.py:201: AssertionError
+____________ test_sr03_protected_path_variants[tests//test_core.py] ____________
+
+fixtures_dir = PosixPath('<scratch>/prefix-wt/fixtures/repos')
+tmp_path = PosixPath('<tmp>
+path = 'tests//test_core.py'
+
+    @pytest.mark.parametrize(
+        "path", ["tests/test_core.py", "./tests/test_core.py", "tests//test_core.py"]
+    )
+    def test_sr03_protected_path_variants(fixtures_dir: Path, tmp_path: Path, path: str) -> None:
+        with Workspace.create(fixtures_dir / "paginator", LIMITS, base_dir=tmp_path) as ws:
+            tools = ToolExecutor(ToolContext(ws, FakeRunner()))
+            edit = {"path": path, "old": "import unittest", "new": "import unittest  # x"}
+            res = tools.execute("apply_patch", {"edits": [edit]})
+>           assert res.denied_rule == "patch.protected_path"
+E           AssertionError: assert None == 'patch.protected_path'
+E            +  where None = ToolResult(tool='apply_patch', ok=True, output={'files_changed': ['tests/test_core.py'], 'edits_applied': 1}, error_kind=None, error=None, denied_rule=None).denied_rule
+
+tests/test_security_review.py:201: AssertionError
+___________________ test_sr06_fifo_in_fixture_does_not_hang ____________________
+
+tmp_path = PosixPath('<tmp>
+
+    def test_sr06_fifo_in_fixture_does_not_hang(tmp_path: Path) -> None:
+        repo = tmp_path / "fifo_repo"
+        repo.mkdir()
+        (repo / "a.txt").write_text("a")
+        os.mkfifo(repo / "pipe")
+        finished, _ = _run_with_deadline(lambda: tree_manifest(repo), 3)
+>       assert finished, "tree_manifest blocked on a FIFO"
+E       AssertionError: tree_manifest blocked on a FIFO
+E       assert False
+
+tests/test_security_review.py:228: AssertionError
+____________________ test_sr06_fifo_fixture_task_fails_fast ____________________
+
+tmp_fixtures = PosixPath('<tmp>
+tmp_path = PosixPath('<tmp>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7fdcae5bfb60>
+
+    def test_sr06_fifo_fixture_task_fails_fast(
+        tmp_fixtures: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        repo = tmp_fixtures / "fifo"
+        repo.mkdir()
+        os.mkfifo(repo / "pipe")
+        _stub_docker(monkeypatch, FakeRunner())
+        settings = Settings(fixtures_dir=tmp_fixtures, runs_dir=tmp_path / "r", offline=True)
+        provider = ScriptedProvider([Step({"tool": "finish", "args": {"summary": "x"}})])
+        finished, result = _run_with_deadline(
+            lambda: run_task(
+                TaskRequest(fixture="fifo", task="x"), settings, provider_factory=lambda _r: provider
+            ),
+            5,
+        )
+>       assert finished, "run_task hung on a FIFO in the fixture"
+E       AssertionError: run_task hung on a FIFO in the fixture
+E       assert False
+
+tests/test_security_review.py:246: AssertionError
+___________________ test_sr07_hard_link_in_fixture_rejected ____________________
+
+tmp_path = PosixPath('<tmp>
+
+    def test_sr07_hard_link_in_fixture_rejected(tmp_path: Path) -> None:
+        repo = tmp_path / "hl"
+        repo.mkdir()
+        secret = tmp_path / "host_secret"
+        secret.write_text("HOST-SECRET\n")
+        os.link(secret, repo / "innocent.txt")
+>       with pytest.raises(WorkspaceError, match="hard link"):
+E       Failed: DID NOT RAISE WorkspaceError
+
+tests/test_security_review.py:257: Failed
+___________ test_sr08_directory_swapped_during_copy_is_not_followed ____________
+
+tmp_path = PosixPath('<tmp>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7fdcae5c0fe0>
+
+    def test_sr08_directory_swapped_during_copy_is_not_followed(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        repo = tmp_path / "swap"
+        (repo / "pkg").mkdir(parents=True)
+        (repo / "pkg" / "mod.py").write_text("x = 1\n")
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        (outside / "stolen.txt").write_text("HOST-SECRET\n")
+        real_mkdir = _real("mkdir")
+        swapped = {"done": False}
+    
+        def racing_mkdir(path: Any, *args: Any, **kwargs: Any) -> Any:
+            # After the copier has classified `pkg` as a directory, swap it for a symlink.
+            if not swapped["done"] and os.fspath(path).endswith("pkg"):
+                swapped["done"] = True
+                os.rename(repo / "pkg", tmp_path / "pkg.orig")
+                os.symlink(outside, repo / "pkg")
+            return real_mkdir(path, *args, **kwargs)
+    
+        monkeypatch.setattr(os, "mkdir", racing_mkdir)
+        base = tmp_path / "base"
+        real_mkdir(base)
+        try:
+            ws = Workspace.create(repo, LIMITS, base_dir=base)
+        except WorkspaceError:
+            return  # detected the swap: acceptable
+        with ws:
+            assert swapped["done"]
+            copied = {p.name for p in ws.path.rglob("*")}
+>           assert "stolen.txt" not in copied
+E           AssertionError: assert 'stolen.txt' not in {'pkg', 'stolen.txt'}
+
+tests/test_security_review.py:295: AssertionError
+_______________ test_sr08_file_growth_during_copy_respects_limit _______________
+
+tmp_path = PosixPath('<tmp>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7fdcae5bc350>
+
+    def test_sr08_file_growth_during_copy_respects_limit(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        repo = tmp_path / "grow"
+        repo.mkdir()
+        (repo / "grow.txt").write_text("x" * 100)
+        real_open = _real("open")
+    
+        def growing_open(path: Any, flags: int, *args: Any, **kwargs: Any) -> int:
+            if os.fspath(path).endswith("grow.txt") and not flags & os.O_WRONLY:
+                with open(repo / "grow.txt", "a") as fh:
+                    fh.write("y" * 50_000)
+            return int(real_open(path, flags, *args, **kwargs))
+    
+        monkeypatch.setattr(os, "open", growing_open)
+>       with pytest.raises(WorkspaceError, match="bytes"):
+E       Failed: DID NOT RAISE WorkspaceError
+
+tests/test_security_review.py:313: Failed
+____________ test_sr09_intermediate_directory_swap_is_not_followed _____________
+
+fixtures_dir = PosixPath('<scratch>/prefix-wt/fixtures/repos')
+tmp_path = PosixPath('<tmp>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7fdcae5bf7d0>
+
+    def test_sr09_intermediate_directory_swap_is_not_followed(
+        fixtures_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Replace a parent directory with a symlink between validation and open."""
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        (outside / "core.py").write_text("HOST-SECRET\n")
+        with Workspace.create(fixtures_dir / "paginator", LIMITS, base_dir=tmp_path) as ws:
+            real_lstat = _real("lstat")
+            state = {"swapped": False}
+    
+            def racing_lstat(path: Any, *args: Any, **kwargs: Any) -> Any:
+                result = real_lstat(path, *args, **kwargs)
+                if not state["swapped"] and os.fspath(path).endswith("paginator"):
+                    state["swapped"] = True
+                    os.rename(ws.path / "paginator", ws.path / "paginator.orig")
+                    os.symlink(outside, ws.path / "paginator")
+                return result
+    
+            monkeypatch.setattr(os, "lstat", racing_lstat)
+            try:
+                text = ws.read_text("paginator/core.py")
+            except Exception:
+                text = ""
+            assert state["swapped"]
+>           assert "HOST-SECRET" not in text
+E           AssertionError: assert 'HOST-SECRET' not in 'HOST-SECRET\n'
+E             
+E             'HOST-SECRET' is contained here:
+E             Strings contain only whitespace, escaping them using repr()
+E               'HOST-SECRET\n'
+
+tests/test_security_review.py:342: AssertionError
+____________ test_sr09_all_workspace_opens_are_descriptor_relative _____________
+
+fixtures_dir = PosixPath('<scratch>/prefix-wt/fixtures/repos')
+tmp_path = PosixPath('<tmp>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7fdcae5be180>
+
+    def test_sr09_all_workspace_opens_are_descriptor_relative(
+        fixtures_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        with Workspace.create(fixtures_dir / "paginator", LIMITS, base_dir=tmp_path) as ws:
+            real_open = _real("open")
+            calls: list[tuple[str, int, Any]] = []
+    
+            def spy(path: Any, flags: int, *args: Any, **kwargs: Any) -> int:
+                calls.append((os.fspath(path), flags, kwargs.get("dir_fd")))
+                return int(real_open(path, flags, *args, **kwargs))
+    
+            monkeypatch.setattr(os, "open", spy)
+            ws.read_text("paginator/core.py")
+            ws.write_text("paginator/core.py", ws.read_text("paginator/core.py") + "\n")
+            assert calls
+            for path, flags, dir_fd in calls:
+                assert flags & os.O_NOFOLLOW, path
+>               assert "/" not in path or (dir_fd is None and path == os.fspath(ws.path)), path
+E               AssertionError: <tmp>
+E               assert ('/' not in '/tmp/pytest...ator/core.py'
+E                 
+E                 '/' is contained here:
+E                   <tmp>
+E                 ? + or (None is None and '/tmp/pytest-...nator/core.py' == '/tmp/pytest-...zjegbxur/repo'
+E                 
+E                 Skipping 78 identical leading characters in diff, use -v to show
+E                 - egbxur/repo
+E                 + egbxur/repo/paginator/core.py))
+
+tests/test_security_review.py:366: AssertionError
+_____________ test_sr10_unreadable_fixture_file_is_workspace_error _____________
+
+tmp_path = PosixPath('<tmp>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7fdcae5bd400>
+
+    def test_sr10_unreadable_fixture_file_is_workspace_error(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        repo = tmp_path / "locked"
+        repo.mkdir()
+        (repo / "locked.txt").write_text("x")
+        real_open = _real("open")
+    
+        def denying_open(path: Any, flags: int, *args: Any, **kwargs: Any) -> int:
+            if os.fspath(path).endswith("locked.txt"):
+                raise PermissionError(13, "Permission denied", os.fspath(path))
+            return int(real_open(path, flags, *args, **kwargs))
+    
+        monkeypatch.setattr(os, "open", denying_open)
+        with pytest.raises(WorkspaceError):
+>           Workspace.create(repo, LIMITS, base_dir=tmp_path)
+
+tests/test_security_review.py:387: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+src/sandbox_agent/workspace.py:92: in create
+    _copy_tree(fixture_dir, repo, limits)
+src/sandbox_agent/workspace.py:236: in _copy_tree
+    fd = os.open(s_path, os.O_RDONLY | os.O_NOFOLLOW)
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+path = PosixPath('<tmp>
+flags = 131072, args = (), kwargs = {}
+
+    def denying_open(path: Any, flags: int, *args: Any, **kwargs: Any) -> int:
+        if os.fspath(path).endswith("locked.txt"):
+>           raise PermissionError(13, "Permission denied", os.fspath(path))
+E           PermissionError: [Errno 13] Permission denied: '<tmp>
+
+tests/test_security_review.py:382: PermissionError
+_____________ test_sr10_unexpected_provider_exception_is_contained _____________
+
+settings = Settings(fixtures_dir=PosixPath('<scratch>/prefix-wt/fixtures/repos'), runs_dir=PosixPath('<tmp> offline=True)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7fdcae5b91f0>
+
+    def test_sr10_unexpected_provider_exception_is_contained(
+        settings: Settings, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _stub_docker(monkeypatch, FakeRunner())
+        leaky = "sk-ant-api03-LEAKY-provider-error-0000000000"
+    
+        class Boom:
+            name = "boom"
+    
+            def next_action(self, transcript: Transcript) -> Any:
+                raise ConnectionResetError(f"peer reset while sending key {leaky}")
+    
+>       result = run_task(
+            TaskRequest(fixture="paginator", task="x"), settings, provider_factory=lambda _r: Boom()
+        )
+
+tests/test_security_review.py:402: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+src/sandbox_agent/service.py:131: in run_task
+    agent_result = controller.run(req.task)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^
+src/sandbox_agent/agent.py:104: in run
+    raw = self.provider.next_action(transcript)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <tests.test_security_review.test_sr10_unexpected_provider_exception_is_contained.<locals>.Boom object at 0x7fdcae5ba0c0>
+transcript = Transcript(task='x', turns=[])
+
+    def next_action(self, transcript: Transcript) -> Any:
+>       raise ConnectionResetError(f"peer reset while sending key {leaky}")
+E       ConnectionResetError: peer reset while sending key sk-ant-api03-LEAKY-provider-error-0000000000
+
+tests/test_security_review.py:400: ConnectionResetError
+____________ test_sr10_unexpected_tool_exception_is_execution_error ____________
+
+fixtures_dir = PosixPath('<scratch>/prefix-wt/fixtures/repos')
+tmp_path = PosixPath('<tmp>
+
+    def test_sr10_unexpected_tool_exception_is_execution_error(
+        fixtures_dir: Path, tmp_path: Path
+    ) -> None:
+        class ExplodingRunner:
+            def run(self, workspace_dir: Path, command: Any) -> Any:
+                raise RuntimeError("unexpected")
+    
+        with Workspace.create(fixtures_dir / "paginator", LIMITS, base_dir=tmp_path) as ws:
+>           res = ToolExecutor(ToolContext(ws, ExplodingRunner())).execute(
+                "run_tests", {"command": "unittest"}
+            )
+
+tests/test_security_review.py:420: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+src/sandbox_agent/tools.py:152: in execute
+    output = getattr(self, f"_tool_{name}")(args)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sandbox_agent/tools.py:216: in _tool_run_tests
+    outcome = self.ctx.runner.run(self.ctx.workspace.path, command)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <tests.test_security_review.test_sr10_unexpected_tool_exception_is_execution_error.<locals>.ExplodingRunner object at 0x7fdcae5b8ce0>
+workspace_dir = PosixPath('<tmp>
+command = ContainerCommand(argv=('python3', '-m', 'unittest', 'discover', '-s', 'tests', '-t', '.', '-v'))
+
+    def run(self, workspace_dir: Path, command: Any) -> Any:
+>       raise RuntimeError("unexpected")
+E       RuntimeError: unexpected
+
+tests/test_security_review.py:417: RuntimeError
+__________________ test_sr11_api_rejects_foreign_host_header ___________________
+
+settings = Settings(fixtures_dir=PosixPath('<scratch>/prefix-wt/fixtures/repos'), runs_dir=PosixPath('<tmp> offline=True)
+
+    def test_sr11_api_rejects_foreign_host_header(settings: Settings) -> None:
+        client = TestClient(create_app(settings), base_url="http://127.0.0.1")
+        assert client.get("/healthz").status_code == 200
+        assert client.get("/healthz", headers={"host": "localhost:8000"}).status_code == 200
+>       assert client.get("/fixtures", headers={"host": "attacker.example"}).status_code == 400
+E       AssertionError: assert 200 == 400
+E        +  where 200 = <Response [200 OK]>.status_code
+E        +    where <Response [200 OK]> = get('/fixtures', headers={'host': 'attacker.example'})
+E        +      where get = <starlette.testclient.TestClient object at 0x7fdcae5c19a0>.get
+
+tests/test_security_review.py:434: AssertionError
+___ test_sr12_credential_named_keys_redacted_when_nested[ANTHROPIC_API_KEY] ____
+
+key = 'ANTHROPIC_API_KEY'
+
+    @pytest.mark.parametrize(
+        "key",
+        [
+            "ANTHROPIC_API_KEY",
+            "client_secret",
+            "access_token",
+            "refresh_token",
+            "Proxy-Authorization",
+            "x-goog-api-key",
+            "private_key",
+            "db_password",
+            "AWS_SECRET_ACCESS_KEY",
+            "sessionToken",
+            "credentials",
+        ],
+    )
+    def test_sr12_credential_named_keys_redacted_when_nested(key: str) -> None:
+        t = Tracer("c")
+        e = t.emit("x", payload={"outer": [{"inner": {key: SECRET, "keep": "visible"}}]})
+        inner = e["payload"]["outer"][0]["inner"]
+>       assert inner[key] == REDACTED
+E       AssertionError: assert 's3cr3t-Value...n-Prefix-9F7A' == '[REDACTED]'
+E         
+E         - [REDACTED]
+E         + s3cr3t-Value-With-No-Known-Prefix-9F7A
+
+tests/test_security_review.py:479: AssertionError
+_____ test_sr12_credential_named_keys_redacted_when_nested[client_secret] ______
+
+key = 'client_secret'
+
+    @pytest.mark.parametrize(
+        "key",
+        [
+            "ANTHROPIC_API_KEY",
+            "client_secret",
+            "access_token",
+            "refresh_token",
+            "Proxy-Authorization",
+            "x-goog-api-key",
+            "private_key",
+            "db_password",
+            "AWS_SECRET_ACCESS_KEY",
+            "sessionToken",
+            "credentials",
+        ],
+    )
+    def test_sr12_credential_named_keys_redacted_when_nested(key: str) -> None:
+        t = Tracer("c")
+        e = t.emit("x", payload={"outer": [{"inner": {key: SECRET, "keep": "visible"}}]})
+        inner = e["payload"]["outer"][0]["inner"]
+>       assert inner[key] == REDACTED
+E       AssertionError: assert 's3cr3t-Value...n-Prefix-9F7A' == '[REDACTED]'
+E         
+E         - [REDACTED]
+E         + s3cr3t-Value-With-No-Known-Prefix-9F7A
+
+tests/test_security_review.py:479: AssertionError
+______ test_sr12_credential_named_keys_redacted_when_nested[access_token] ______
+
+key = 'access_token'
+
+    @pytest.mark.parametrize(
+        "key",
+        [
+            "ANTHROPIC_API_KEY",
+            "client_secret",
+            "access_token",
+            "refresh_token",
+            "Proxy-Authorization",
+            "x-goog-api-key",
+            "private_key",
+            "db_password",
+            "AWS_SECRET_ACCESS_KEY",
+            "sessionToken",
+            "credentials",
+        ],
+    )
+    def test_sr12_credential_named_keys_redacted_when_nested(key: str) -> None:
+        t = Tracer("c")
+        e = t.emit("x", payload={"outer": [{"inner": {key: SECRET, "keep": "visible"}}]})
+        inner = e["payload"]["outer"][0]["inner"]
+>       assert inner[key] == REDACTED
+E       AssertionError: assert 's3cr3t-Value...n-Prefix-9F7A' == '[REDACTED]'
+E         
+E         - [REDACTED]
+E         + s3cr3t-Value-With-No-Known-Prefix-9F7A
+
+tests/test_security_review.py:479: AssertionError
+_____ test_sr12_credential_named_keys_redacted_when_nested[refresh_token] ______
+
+key = 'refresh_token'
+
+    @pytest.mark.parametrize(
+        "key",
+        [
+            "ANTHROPIC_API_KEY",
+            "client_secret",
+            "access_token",
+            "refresh_token",
+            "Proxy-Authorization",
+            "x-goog-api-key",
+            "private_key",
+            "db_password",
+            "AWS_SECRET_ACCESS_KEY",
+            "sessionToken",
+            "credentials",
+        ],
+    )
+    def test_sr12_credential_named_keys_redacted_when_nested(key: str) -> None:
+        t = Tracer("c")
+        e = t.emit("x", payload={"outer": [{"inner": {key: SECRET, "keep": "visible"}}]})
+        inner = e["payload"]["outer"][0]["inner"]
+>       assert inner[key] == REDACTED
+E       AssertionError: assert 's3cr3t-Value...n-Prefix-9F7A' == '[REDACTED]'
+E         
+E         - [REDACTED]
+E         + s3cr3t-Value-With-No-Known-Prefix-9F7A
+
+tests/test_security_review.py:479: AssertionError
+__ test_sr12_credential_named_keys_redacted_when_nested[Proxy-Authorization] ___
+
+key = 'Proxy-Authorization'
+
+    @pytest.mark.parametrize(
+        "key",
+        [
+            "ANTHROPIC_API_KEY",
+            "client_secret",
+            "access_token",
+            "refresh_token",
+            "Proxy-Authorization",
+            "x-goog-api-key",
+            "private_key",
+            "db_password",
+            "AWS_SECRET_ACCESS_KEY",
+            "sessionToken",
+            "credentials",
+        ],
+    )
+    def test_sr12_credential_named_keys_redacted_when_nested(key: str) -> None:
+        t = Tracer("c")
+        e = t.emit("x", payload={"outer": [{"inner": {key: SECRET, "keep": "visible"}}]})
+        inner = e["payload"]["outer"][0]["inner"]
+>       assert inner[key] == REDACTED
+E       AssertionError: assert 's3cr3t-Value...n-Prefix-9F7A' == '[REDACTED]'
+E         
+E         - [REDACTED]
+E         + s3cr3t-Value-With-No-Known-Prefix-9F7A
+
+tests/test_security_review.py:479: AssertionError
+_____ test_sr12_credential_named_keys_redacted_when_nested[x-goog-api-key] _____
+
+key = 'x-goog-api-key'
+
+    @pytest.mark.parametrize(
+        "key",
+        [
+            "ANTHROPIC_API_KEY",
+            "client_secret",
+            "access_token",
+            "refresh_token",
+            "Proxy-Authorization",
+            "x-goog-api-key",
+            "private_key",
+            "db_password",
+            "AWS_SECRET_ACCESS_KEY",
+            "sessionToken",
+            "credentials",
+        ],
+    )
+    def test_sr12_credential_named_keys_redacted_when_nested(key: str) -> None:
+        t = Tracer("c")
+        e = t.emit("x", payload={"outer": [{"inner": {key: SECRET, "keep": "visible"}}]})
+        inner = e["payload"]["outer"][0]["inner"]
+>       assert inner[key] == REDACTED
+E       AssertionError: assert 's3cr3t-Value...n-Prefix-9F7A' == '[REDACTED]'
+E         
+E         - [REDACTED]
+E         + s3cr3t-Value-With-No-Known-Prefix-9F7A
+
+tests/test_security_review.py:479: AssertionError
+______ test_sr12_credential_named_keys_redacted_when_nested[private_key] _______
+
+key = 'private_key'
+
+    @pytest.mark.parametrize(
+        "key",
+        [
+            "ANTHROPIC_API_KEY",
+            "client_secret",
+            "access_token",
+            "refresh_token",
+            "Proxy-Authorization",
+            "x-goog-api-key",
+            "private_key",
+            "db_password",
+            "AWS_SECRET_ACCESS_KEY",
+            "sessionToken",
+            "credentials",
+        ],
+    )
+    def test_sr12_credential_named_keys_redacted_when_nested(key: str) -> None:
+        t = Tracer("c")
+        e = t.emit("x", payload={"outer": [{"inner": {key: SECRET, "keep": "visible"}}]})
+        inner = e["payload"]["outer"][0]["inner"]
+>       assert inner[key] == REDACTED
+E       AssertionError: assert 's3cr3t-Value...n-Prefix-9F7A' == '[REDACTED]'
+E         
+E         - [REDACTED]
+E         + s3cr3t-Value-With-No-Known-Prefix-9F7A
+
+tests/test_security_review.py:479: AssertionError
+______ test_sr12_credential_named_keys_redacted_when_nested[db_password] _______
+
+key = 'db_password'
+
+    @pytest.mark.parametrize(
+        "key",
+        [
+            "ANTHROPIC_API_KEY",
+            "client_secret",
+            "access_token",
+            "refresh_token",
+            "Proxy-Authorization",
+            "x-goog-api-key",
+            "private_key",
+            "db_password",
+            "AWS_SECRET_ACCESS_KEY",
+            "sessionToken",
+            "credentials",
+        ],
+    )
+    def test_sr12_credential_named_keys_redacted_when_nested(key: str) -> None:
+        t = Tracer("c")
+        e = t.emit("x", payload={"outer": [{"inner": {key: SECRET, "keep": "visible"}}]})
+        inner = e["payload"]["outer"][0]["inner"]
+>       assert inner[key] == REDACTED
+E       AssertionError: assert 's3cr3t-Value...n-Prefix-9F7A' == '[REDACTED]'
+E         
+E         - [REDACTED]
+E         + s3cr3t-Value-With-No-Known-Prefix-9F7A
+
+tests/test_security_review.py:479: AssertionError
+_ test_sr12_credential_named_keys_redacted_when_nested[AWS_SECRET_ACCESS_KEY] __
+
+key = 'AWS_SECRET_ACCESS_KEY'
+
+    @pytest.mark.parametrize(
+        "key",
+        [
+            "ANTHROPIC_API_KEY",
+            "client_secret",
+            "access_token",
+            "refresh_token",
+            "Proxy-Authorization",
+            "x-goog-api-key",
+            "private_key",
+            "db_password",
+            "AWS_SECRET_ACCESS_KEY",
+            "sessionToken",
+            "credentials",
+        ],
+    )
+    def test_sr12_credential_named_keys_redacted_when_nested(key: str) -> None:
+        t = Tracer("c")
+        e = t.emit("x", payload={"outer": [{"inner": {key: SECRET, "keep": "visible"}}]})
+        inner = e["payload"]["outer"][0]["inner"]
+>       assert inner[key] == REDACTED
+E       AssertionError: assert 's3cr3t-Value...n-Prefix-9F7A' == '[REDACTED]'
+E         
+E         - [REDACTED]
+E         + s3cr3t-Value-With-No-Known-Prefix-9F7A
+
+tests/test_security_review.py:479: AssertionError
+______ test_sr12_credential_named_keys_redacted_when_nested[sessionToken] ______
+
+key = 'sessionToken'
+
+    @pytest.mark.parametrize(
+        "key",
+        [
+            "ANTHROPIC_API_KEY",
+            "client_secret",
+            "access_token",
+            "refresh_token",
+            "Proxy-Authorization",
+            "x-goog-api-key",
+            "private_key",
+            "db_password",
+            "AWS_SECRET_ACCESS_KEY",
+            "sessionToken",
+            "credentials",
+        ],
+    )
+    def test_sr12_credential_named_keys_redacted_when_nested(key: str) -> None:
+        t = Tracer("c")
+        e = t.emit("x", payload={"outer": [{"inner": {key: SECRET, "keep": "visible"}}]})
+        inner = e["payload"]["outer"][0]["inner"]
+>       assert inner[key] == REDACTED
+E       AssertionError: assert 's3cr3t-Value...n-Prefix-9F7A' == '[REDACTED]'
+E         
+E         - [REDACTED]
+E         + s3cr3t-Value-With-No-Known-Prefix-9F7A
+
+tests/test_security_review.py:479: AssertionError
+______ test_sr12_credential_named_keys_redacted_when_nested[credentials] _______
+
+key = 'credentials'
+
+    @pytest.mark.parametrize(
+        "key",
+        [
+            "ANTHROPIC_API_KEY",
+            "client_secret",
+            "access_token",
+            "refresh_token",
+            "Proxy-Authorization",
+            "x-goog-api-key",
+            "private_key",
+            "db_password",
+            "AWS_SECRET_ACCESS_KEY",
+            "sessionToken",
+            "credentials",
+        ],
+    )
+    def test_sr12_credential_named_keys_redacted_when_nested(key: str) -> None:
+        t = Tracer("c")
+        e = t.emit("x", payload={"outer": [{"inner": {key: SECRET, "keep": "visible"}}]})
+        inner = e["payload"]["outer"][0]["inner"]
+>       assert inner[key] == REDACTED
+E       AssertionError: assert 's3cr3t-Value...n-Prefix-9F7A' == '[REDACTED]'
+E         
+E         - [REDACTED]
+E         + s3cr3t-Value-With-No-Known-Prefix-9F7A
+
+tests/test_security_review.py:479: AssertionError
+_________________ test_sr12_encoded_registered_secret_redacted _________________
+
+    def test_sr12_encoded_registered_secret_redacted() -> None:
+        t = Tracer("c")
+        t.register_secrets(SECRET)
+        variants = {
+            "base64": base64.b64encode(SECRET.encode()).decode(),
+            "base64url": base64.urlsafe_b64encode(SECRET.encode()).decode().rstrip("="),
+            "hex": binascii.hexlify(SECRET.encode()).decode(),
+            "urlencoded": urllib.parse.quote(SECRET + "/+", safe=""),
+            "json_escaped": json.dumps(SECRET)[1:-1],
+        }
+        e = t.emit("x", **variants)
+        for name in variants:
+>           assert e[name] == REDACTED or REDACTED in e[name], name
+E           AssertionError: base64
+E           assert ('czNjcjN0LVZh...lZml4LTlGN0E=' == '[REDACTED]'
+E             
+E             - [REDACTED]
+E             + czNjcjN0LVZhbHVlLVdpdGgtTm8tS25vd24tUHJlZml4LTlGN0E= or '[REDACTED]' in 'czNjcjN0LVZhbHVlLVdpdGgtTm8tS25vd24tUHJlZml4LTlGN0E=')
+
+tests/test_security_review.py:495: AssertionError
+_____________ test_sr12_custom_credential_env_var_values_redacted ______________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7fdcae467d10>
+
+    def test_sr12_custom_credential_env_var_values_redacted(monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("MYCORP_DEPLOY_TOKEN", "opaque-deploy-credential-777")
+        monkeypatch.setenv("UNRELATED_SETTING", "harmless-value-1234")
+        e = Tracer("c").emit("x", text="opaque-deploy-credential-777 harmless-value-1234")
+>       assert "opaque-deploy-credential-777" not in e["text"]
+E       AssertionError: assert 'opaque-depl...edential-777' not in 'opaque-depl...s-value-1234'
+E         
+E         'opaque-deploy-credential-777' is contained here:
+E           opaque-deploy-credential-777 harmless-value-1234
+
+tests/test_security_review.py:502: AssertionError
+_______________ test_sr12_unusual_credential_formats[basic_auth] _______________
+
+text = 'Authorization: Basic dXNlcjpwYXNzd29yZDEyMzQ1Ng=='
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "Authorization: Basic dXNlcjpwYXNzd29yZDEyMzQ1Ng==",
+            "authorization=Token abcdef0123456789abcdef",
+            "postgres://admin:hunter2-db-pass@db.internal:5432/app",
+            "AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+            '{"api_key": "abc123def456ghi789"}',
+            "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U",
+        ],
+        ids=["basic_auth", "token_header", "url_userinfo", "aws_assignment", "json_key", "jwt"],
+    )
+    def test_sr12_unusual_credential_formats(text: str) -> None:
+        e = Tracer("c").emit("x", text=text)
+>       assert REDACTED in e["text"], e["text"]
+E       AssertionError: Authorization: Basic dXNlcjpwYXNzd29yZDEyMzQ1Ng==
+E       assert '[REDACTED]' in 'Authorization: Basic dXNlcjpwYXNzd29yZDEyMzQ1Ng=='
+
+tests/test_security_review.py:520: AssertionError
+______________ test_sr12_unusual_credential_formats[token_header] ______________
+
+text = 'authorization=Token abcdef0123456789abcdef'
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "Authorization: Basic dXNlcjpwYXNzd29yZDEyMzQ1Ng==",
+            "authorization=Token abcdef0123456789abcdef",
+            "postgres://admin:hunter2-db-pass@db.internal:5432/app",
+            "AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+            '{"api_key": "abc123def456ghi789"}',
+            "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U",
+        ],
+        ids=["basic_auth", "token_header", "url_userinfo", "aws_assignment", "json_key", "jwt"],
+    )
+    def test_sr12_unusual_credential_formats(text: str) -> None:
+        e = Tracer("c").emit("x", text=text)
+>       assert REDACTED in e["text"], e["text"]
+E       AssertionError: authorization=Token abcdef0123456789abcdef
+E       assert '[REDACTED]' in 'authorization=Token abcdef0123456789abcdef'
+
+tests/test_security_review.py:520: AssertionError
+______________ test_sr12_unusual_credential_formats[url_userinfo] ______________
+
+text = 'postgres://admin:hunter2-db-pass@db.internal:5432/app'
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "Authorization: Basic dXNlcjpwYXNzd29yZDEyMzQ1Ng==",
+            "authorization=Token abcdef0123456789abcdef",
+            "postgres://admin:hunter2-db-pass@db.internal:5432/app",
+            "AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+            '{"api_key": "abc123def456ghi789"}',
+            "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U",
+        ],
+        ids=["basic_auth", "token_header", "url_userinfo", "aws_assignment", "json_key", "jwt"],
+    )
+    def test_sr12_unusual_credential_formats(text: str) -> None:
+        e = Tracer("c").emit("x", text=text)
+>       assert REDACTED in e["text"], e["text"]
+E       AssertionError: postgres://admin:hunter2-db-pass@db.internal:5432/app
+E       assert '[REDACTED]' in 'postgres://admin:hunter2-db-pass@db.internal:5432/app'
+
+tests/test_security_review.py:520: AssertionError
+_____________ test_sr12_unusual_credential_formats[aws_assignment] _____________
+
+text = 'AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY'
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "Authorization: Basic dXNlcjpwYXNzd29yZDEyMzQ1Ng==",
+            "authorization=Token abcdef0123456789abcdef",
+            "postgres://admin:hunter2-db-pass@db.internal:5432/app",
+            "AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+            '{"api_key": "abc123def456ghi789"}',
+            "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U",
+        ],
+        ids=["basic_auth", "token_header", "url_userinfo", "aws_assignment", "json_key", "jwt"],
+    )
+    def test_sr12_unusual_credential_formats(text: str) -> None:
+        e = Tracer("c").emit("x", text=text)
+>       assert REDACTED in e["text"], e["text"]
+E       AssertionError: AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
+E       assert '[REDACTED]' in 'AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY'
+
+tests/test_security_review.py:520: AssertionError
+________________ test_sr12_unusual_credential_formats[json_key] ________________
+
+text = '{"api_key": "abc123def456ghi789"}'
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "Authorization: Basic dXNlcjpwYXNzd29yZDEyMzQ1Ng==",
+            "authorization=Token abcdef0123456789abcdef",
+            "postgres://admin:hunter2-db-pass@db.internal:5432/app",
+            "AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+            '{"api_key": "abc123def456ghi789"}',
+            "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U",
+        ],
+        ids=["basic_auth", "token_header", "url_userinfo", "aws_assignment", "json_key", "jwt"],
+    )
+    def test_sr12_unusual_credential_formats(text: str) -> None:
+        e = Tracer("c").emit("x", text=text)
+>       assert REDACTED in e["text"], e["text"]
+E       AssertionError: {"api_key": "abc123def456ghi789"}
+E       assert '[REDACTED]' in '{"api_key": "abc123def456ghi789"}'
+
+tests/test_security_review.py:520: AssertionError
+__________________ test_sr12_unusual_credential_formats[jwt] ___________________
+
+text = 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U'
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "Authorization: Basic dXNlcjpwYXNzd29yZDEyMzQ1Ng==",
+            "authorization=Token abcdef0123456789abcdef",
+            "postgres://admin:hunter2-db-pass@db.internal:5432/app",
+            "AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+            '{"api_key": "abc123def456ghi789"}',
+            "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U",
+        ],
+        ids=["basic_auth", "token_header", "url_userinfo", "aws_assignment", "json_key", "jwt"],
+    )
+    def test_sr12_unusual_credential_formats(text: str) -> None:
+        e = Tracer("c").emit("x", text=text)
+>       assert REDACTED in e["text"], e["text"]
+E       AssertionError: eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U
+E       assert '[REDACTED]' in 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U'
+
+tests/test_security_review.py:520: AssertionError
+_____________________ test_sr14_reader_keeps_head_and_tail _____________________
+
+    def test_sr14_reader_keeps_head_and_tail() -> None:
+        import io  # noqa: PLC0415
+    
+        from sandbox_agent.sandbox import _BoundedReader  # noqa: PLC0415
+    
+        data = b"HEAD-" + b"x" * 200_000 + b"\nRan 6 tests in 0.1s\n\nFAILED (failures=2)\n"
+        reader = _BoundedReader(io.BytesIO(data), 1024)
+        reader.run()
+        assert reader.text.startswith("HEAD-")
+>       assert reader.tail.endswith("FAILED (failures=2)\n")
+               ^^^^^^^^^^^
+E       AttributeError: '_BoundedReader' object has no attribute 'tail'
+
+tests/test_security_review.py:558: AttributeError
+______ test_sr03_test_config_policy_and_eval_files_protected[conftest.py] ______
+
+tmp_path = PosixPath('<tmp>
+path = 'conftest.py'
+
+    @pytest.mark.parametrize(
+        "path",
+        [
+            "conftest.py",
+            "pkg/conftest.py",
+            "pyproject.toml",
+            "setup.cfg",
+            "tox.ini",
+            "pytest.ini",
+            "sitecustomize.py",
+            "usercustomize.py",
+            "pkg/evil.pth",
+            ".sandbox-agent/policy.toml",
+            "evals/tasks.json",
+        ],
+    )
+    def test_sr03_test_config_policy_and_eval_files_protected(tmp_path: Path, path: str) -> None:
+        repo = tmp_path / "repo"
+        (repo / Path(path).parent).mkdir(parents=True, exist_ok=True)
+        (repo / path).write_text("value = 1\n")
+        with Workspace.create(repo, LIMITS, base_dir=tmp_path) as ws:
+            res = ToolExecutor(ToolContext(ws, FakeRunner())).execute(
+                "apply_patch", {"edits": [{"path": path, "old": "value = 1", "new": "value = 2"}]}
+            )
+>           assert res.denied_rule == "patch.protected_path", res
+E           AssertionError: ToolResult(tool='apply_patch', ok=True, output={'files_changed': ['conftest.py'], 'edits_applied': 1}, error_kind=None, error=None, denied_rule=None)
+E           assert None == 'patch.protected_path'
+E            +  where None = ToolResult(tool='apply_patch', ok=True, output={'files_changed': ['conftest.py'], 'edits_applied': 1}, error_kind=None, error=None, denied_rule=None).denied_rule
+
+tests/test_security_review.py:589: AssertionError
+____ test_sr03_test_config_policy_and_eval_files_protected[pkg/conftest.py] ____
+
+tmp_path = PosixPath('<tmp>
+path = 'pkg/conftest.py'
+
+    @pytest.mark.parametrize(
+        "path",
+        [
+            "conftest.py",
+            "pkg/conftest.py",
+            "pyproject.toml",
+            "setup.cfg",
+            "tox.ini",
+            "pytest.ini",
+            "sitecustomize.py",
+            "usercustomize.py",
+            "pkg/evil.pth",
+            ".sandbox-agent/policy.toml",
+            "evals/tasks.json",
+        ],
+    )
+    def test_sr03_test_config_policy_and_eval_files_protected(tmp_path: Path, path: str) -> None:
+        repo = tmp_path / "repo"
+        (repo / Path(path).parent).mkdir(parents=True, exist_ok=True)
+        (repo / path).write_text("value = 1\n")
+        with Workspace.create(repo, LIMITS, base_dir=tmp_path) as ws:
+            res = ToolExecutor(ToolContext(ws, FakeRunner())).execute(
+                "apply_patch", {"edits": [{"path": path, "old": "value = 1", "new": "value = 2"}]}
+            )
+>           assert res.denied_rule == "patch.protected_path", res
+E           AssertionError: ToolResult(tool='apply_patch', ok=True, output={'files_changed': ['pkg/conftest.py'], 'edits_applied': 1}, error_kind=None, error=None, denied_rule=None)
+E           assert None == 'patch.protected_path'
+E            +  where None = ToolResult(tool='apply_patch', ok=True, output={'files_changed': ['pkg/conftest.py'], 'edits_applied': 1}, error_kind=None, error=None, denied_rule=None).denied_rule
+
+tests/test_security_review.py:589: AssertionError
+____ test_sr03_test_config_policy_and_eval_files_protected[pyproject.toml] _____
+
+tmp_path = PosixPath('<tmp>
+path = 'pyproject.toml'
+
+    @pytest.mark.parametrize(
+        "path",
+        [
+            "conftest.py",
+            "pkg/conftest.py",
+            "pyproject.toml",
+            "setup.cfg",
+            "tox.ini",
+            "pytest.ini",
+            "sitecustomize.py",
+            "usercustomize.py",
+            "pkg/evil.pth",
+            ".sandbox-agent/policy.toml",
+            "evals/tasks.json",
+        ],
+    )
+    def test_sr03_test_config_policy_and_eval_files_protected(tmp_path: Path, path: str) -> None:
+        repo = tmp_path / "repo"
+        (repo / Path(path).parent).mkdir(parents=True, exist_ok=True)
+        (repo / path).write_text("value = 1\n")
+        with Workspace.create(repo, LIMITS, base_dir=tmp_path) as ws:
+            res = ToolExecutor(ToolContext(ws, FakeRunner())).execute(
+                "apply_patch", {"edits": [{"path": path, "old": "value = 1", "new": "value = 2"}]}
+            )
+>           assert res.denied_rule == "patch.protected_path", res
+E           AssertionError: ToolResult(tool='apply_patch', ok=True, output={'files_changed': ['pyproject.toml'], 'edits_applied': 1}, error_kind=None, error=None, denied_rule=None)
+E           assert None == 'patch.protected_path'
+E            +  where None = ToolResult(tool='apply_patch', ok=True, output={'files_changed': ['pyproject.toml'], 'edits_applied': 1}, error_kind=None, error=None, denied_rule=None).denied_rule
+
+tests/test_security_review.py:589: AssertionError
+_______ test_sr03_test_config_policy_and_eval_files_protected[setup.cfg] _______
+
+tmp_path = PosixPath('<tmp>
+path = 'setup.cfg'
+
+    @pytest.mark.parametrize(
+        "path",
+        [
+            "conftest.py",
+            "pkg/conftest.py",
+            "pyproject.toml",
+            "setup.cfg",
+            "tox.ini",
+            "pytest.ini",
+            "sitecustomize.py",
+            "usercustomize.py",
+            "pkg/evil.pth",
+            ".sandbox-agent/policy.toml",
+            "evals/tasks.json",
+        ],
+    )
+    def test_sr03_test_config_policy_and_eval_files_protected(tmp_path: Path, path: str) -> None:
+        repo = tmp_path / "repo"
+        (repo / Path(path).parent).mkdir(parents=True, exist_ok=True)
+        (repo / path).write_text("value = 1\n")
+        with Workspace.create(repo, LIMITS, base_dir=tmp_path) as ws:
+            res = ToolExecutor(ToolContext(ws, FakeRunner())).execute(
+                "apply_patch", {"edits": [{"path": path, "old": "value = 1", "new": "value = 2"}]}
+            )
+>           assert res.denied_rule == "patch.protected_path", res
+E           AssertionError: ToolResult(tool='apply_patch', ok=True, output={'files_changed': ['setup.cfg'], 'edits_applied': 1}, error_kind=None, error=None, denied_rule=None)
+E           assert None == 'patch.protected_path'
+E            +  where None = ToolResult(tool='apply_patch', ok=True, output={'files_changed': ['setup.cfg'], 'edits_applied': 1}, error_kind=None, error=None, denied_rule=None).denied_rule
+
+tests/test_security_review.py:589: AssertionError
+________ test_sr03_test_config_policy_and_eval_files_protected[tox.ini] ________
+
+tmp_path = PosixPath('<tmp>
+path = 'tox.ini'
+
+    @pytest.mark.parametrize(
+        "path",
+        [
+            "conftest.py",
+            "pkg/conftest.py",
+            "pyproject.toml",
+            "setup.cfg",
+            "tox.ini",
+            "pytest.ini",
+            "sitecustomize.py",
+            "usercustomize.py",
+            "pkg/evil.pth",
+            ".sandbox-agent/policy.toml",
+            "evals/tasks.json",
+        ],
+    )
+    def test_sr03_test_config_policy_and_eval_files_protected(tmp_path: Path, path: str) -> None:
+        repo = tmp_path / "repo"
+        (repo / Path(path).parent).mkdir(parents=True, exist_ok=True)
+        (repo / path).write_text("value = 1\n")
+        with Workspace.create(repo, LIMITS, base_dir=tmp_path) as ws:
+            res = ToolExecutor(ToolContext(ws, FakeRunner())).execute(
+                "apply_patch", {"edits": [{"path": path, "old": "value = 1", "new": "value = 2"}]}
+            )
+>           assert res.denied_rule == "patch.protected_path", res
+E           AssertionError: ToolResult(tool='apply_patch', ok=True, output={'files_changed': ['tox.ini'], 'edits_applied': 1}, error_kind=None, error=None, denied_rule=None)
+E           assert None == 'patch.protected_path'
+E            +  where None = ToolResult(tool='apply_patch', ok=True, output={'files_changed': ['tox.ini'], 'edits_applied': 1}, error_kind=None, error=None, denied_rule=None).denied_rule
+
+tests/test_security_review.py:589: AssertionError
+______ test_sr03_test_config_policy_and_eval_files_protected[pytest.ini] _______
+
+tmp_path = PosixPath('<tmp>
+path = 'pytest.ini'
+
+    @pytest.mark.parametrize(
+        "path",
+        [
+            "conftest.py",
+            "pkg/conftest.py",
+            "pyproject.toml",
+            "setup.cfg",
+            "tox.ini",
+            "pytest.ini",
+            "sitecustomize.py",
+            "usercustomize.py",
+            "pkg/evil.pth",
+            ".sandbox-agent/policy.toml",
+            "evals/tasks.json",
+        ],
+    )
+    def test_sr03_test_config_policy_and_eval_files_protected(tmp_path: Path, path: str) -> None:
+        repo = tmp_path / "repo"
+        (repo / Path(path).parent).mkdir(parents=True, exist_ok=True)
+        (repo / path).write_text("value = 1\n")
+        with Workspace.create(repo, LIMITS, base_dir=tmp_path) as ws:
+            res = ToolExecutor(ToolContext(ws, FakeRunner())).execute(
+                "apply_patch", {"edits": [{"path": path, "old": "value = 1", "new": "value = 2"}]}
+            )
+>           assert res.denied_rule == "patch.protected_path", res
+E           AssertionError: ToolResult(tool='apply_patch', ok=True, output={'files_changed': ['pytest.ini'], 'edits_applied': 1}, error_kind=None, error=None, denied_rule=None)
+E           assert None == 'patch.protected_path'
+E            +  where None = ToolResult(tool='apply_patch', ok=True, output={'files_changed': ['pytest.ini'], 'edits_applied': 1}, error_kind=None, error=None, denied_rule=None).denied_rule
+
+tests/test_security_review.py:589: AssertionError
+___ test_sr03_test_config_policy_and_eval_files_protected[sitecustomize.py] ____
+
+tmp_path = PosixPath('<tmp>
+path = 'sitecustomize.py'
+
+    @pytest.mark.parametrize(
+        "path",
+        [
+            "conftest.py",
+            "pkg/conftest.py",
+            "pyproject.toml",
+            "setup.cfg",
+            "tox.ini",
+            "pytest.ini",
+            "sitecustomize.py",
+            "usercustomize.py",
+            "pkg/evil.pth",
+            ".sandbox-agent/policy.toml",
+            "evals/tasks.json",
+        ],
+    )
+    def test_sr03_test_config_policy_and_eval_files_protected(tmp_path: Path, path: str) -> None:
+        repo = tmp_path / "repo"
+        (repo / Path(path).parent).mkdir(parents=True, exist_ok=True)
+        (repo / path).write_text("value = 1\n")
+        with Workspace.create(repo, LIMITS, base_dir=tmp_path) as ws:
+            res = ToolExecutor(ToolContext(ws, FakeRunner())).execute(
+                "apply_patch", {"edits": [{"path": path, "old": "value = 1", "new": "value = 2"}]}
+            )
+>           assert res.denied_rule == "patch.protected_path", res
+E           AssertionError: ToolResult(tool='apply_patch', ok=True, output={'files_changed': ['sitecustomize.py'], 'edits_applied': 1}, error_kind=None, error=None, denied_rule=None)
+E           assert None == 'patch.protected_path'
+E            +  where None = ToolResult(tool='apply_patch', ok=True, output={'files_changed': ['sitecustomize.py'], 'edits_applied': 1}, error_kind=None, error=None, denied_rule=None).denied_rule
+
+tests/test_security_review.py:589: AssertionError
+___ test_sr03_test_config_policy_and_eval_files_protected[usercustomize.py] ____
+
+tmp_path = PosixPath('<tmp>
+path = 'usercustomize.py'
+
+    @pytest.mark.parametrize(
+        "path",
+        [
+            "conftest.py",
+            "pkg/conftest.py",
+            "pyproject.toml",
+            "setup.cfg",
+            "tox.ini",
+            "pytest.ini",
+            "sitecustomize.py",
+            "usercustomize.py",
+            "pkg/evil.pth",
+            ".sandbox-agent/policy.toml",
+            "evals/tasks.json",
+        ],
+    )
+    def test_sr03_test_config_policy_and_eval_files_protected(tmp_path: Path, path: str) -> None:
+        repo = tmp_path / "repo"
+        (repo / Path(path).parent).mkdir(parents=True, exist_ok=True)
+        (repo / path).write_text("value = 1\n")
+        with Workspace.create(repo, LIMITS, base_dir=tmp_path) as ws:
+            res = ToolExecutor(ToolContext(ws, FakeRunner())).execute(
+                "apply_patch", {"edits": [{"path": path, "old": "value = 1", "new": "value = 2"}]}
+            )
+>           assert res.denied_rule == "patch.protected_path", res
+E           AssertionError: ToolResult(tool='apply_patch', ok=True, output={'files_changed': ['usercustomize.py'], 'edits_applied': 1}, error_kind=None, error=None, denied_rule=None)
+E           assert None == 'patch.protected_path'
+E            +  where None = ToolResult(tool='apply_patch', ok=True, output={'files_changed': ['usercustomize.py'], 'edits_applied': 1}, error_kind=None, error=None, denied_rule=None).denied_rule
+
+tests/test_security_review.py:589: AssertionError
+_____ test_sr03_test_config_policy_and_eval_files_protected[pkg/evil.pth] ______
+
+tmp_path = PosixPath('<tmp>
+path = 'pkg/evil.pth'
+
+    @pytest.mark.parametrize(
+        "path",
+        [
+            "conftest.py",
+            "pkg/conftest.py",
+            "pyproject.toml",
+            "setup.cfg",
+            "tox.ini",
+            "pytest.ini",
+            "sitecustomize.py",
+            "usercustomize.py",
+            "pkg/evil.pth",
+            ".sandbox-agent/policy.toml",
+            "evals/tasks.json",
+        ],
+    )
+    def test_sr03_test_config_policy_and_eval_files_protected(tmp_path: Path, path: str) -> None:
+        repo = tmp_path / "repo"
+        (repo / Path(path).parent).mkdir(parents=True, exist_ok=True)
+        (repo / path).write_text("value = 1\n")
+        with Workspace.create(repo, LIMITS, base_dir=tmp_path) as ws:
+            res = ToolExecutor(ToolContext(ws, FakeRunner())).execute(
+                "apply_patch", {"edits": [{"path": path, "old": "value = 1", "new": "value = 2"}]}
+            )
+>           assert res.denied_rule == "patch.protected_path", res
+E           AssertionError: ToolResult(tool='apply_patch', ok=True, output={'files_changed': ['pkg/evil.pth'], 'edits_applied': 1}, error_kind=None, error=None, denied_rule=None)
+E           assert None == 'patch.protected_path'
+E            +  where None = ToolResult(tool='apply_patch', ok=True, output={'files_changed': ['pkg/evil.pth'], 'edits_applied': 1}, error_kind=None, error=None, denied_rule=None).denied_rule
+
+tests/test_security_review.py:589: AssertionError
+_ test_sr03_test_config_policy_and_eval_files_protected[.sandbox-agent/policy.toml] _
+
+tmp_path = PosixPath('<tmp>
+path = '.sandbox-agent/policy.toml'
+
+    @pytest.mark.parametrize(
+        "path",
+        [
+            "conftest.py",
+            "pkg/conftest.py",
+            "pyproject.toml",
+            "setup.cfg",
+            "tox.ini",
+            "pytest.ini",
+            "sitecustomize.py",
+            "usercustomize.py",
+            "pkg/evil.pth",
+            ".sandbox-agent/policy.toml",
+            "evals/tasks.json",
+        ],
+    )
+    def test_sr03_test_config_policy_and_eval_files_protected(tmp_path: Path, path: str) -> None:
+        repo = tmp_path / "repo"
+        (repo / Path(path).parent).mkdir(parents=True, exist_ok=True)
+        (repo / path).write_text("value = 1\n")
+        with Workspace.create(repo, LIMITS, base_dir=tmp_path) as ws:
+            res = ToolExecutor(ToolContext(ws, FakeRunner())).execute(
+                "apply_patch", {"edits": [{"path": path, "old": "value = 1", "new": "value = 2"}]}
+            )
+>           assert res.denied_rule == "patch.protected_path", res
+E           AssertionError: ToolResult(tool='apply_patch', ok=True, output={'files_changed': ['.sandbox-agent/policy.toml'], 'edits_applied': 1}, error_kind=None, error=None, denied_rule=None)
+E           assert None == 'patch.protected_path'
+E            +  where None = ToolResult(tool='apply_patch', ok=True, output={'files_changed': ['.sandbox-agent/policy.toml'], 'edits_applied': 1}, error_kind=None, error=None, denied_rule=None).denied_rule
+
+tests/test_security_review.py:589: AssertionError
+___ test_sr03_test_config_policy_and_eval_files_protected[evals/tasks.json] ____
+
+tmp_path = PosixPath('<tmp>
+path = 'evals/tasks.json'
+
+    @pytest.mark.parametrize(
+        "path",
+        [
+            "conftest.py",
+            "pkg/conftest.py",
+            "pyproject.toml",
+            "setup.cfg",
+            "tox.ini",
+            "pytest.ini",
+            "sitecustomize.py",
+            "usercustomize.py",
+            "pkg/evil.pth",
+            ".sandbox-agent/policy.toml",
+            "evals/tasks.json",
+        ],
+    )
+    def test_sr03_test_config_policy_and_eval_files_protected(tmp_path: Path, path: str) -> None:
+        repo = tmp_path / "repo"
+        (repo / Path(path).parent).mkdir(parents=True, exist_ok=True)
+        (repo / path).write_text("value = 1\n")
+        with Workspace.create(repo, LIMITS, base_dir=tmp_path) as ws:
+            res = ToolExecutor(ToolContext(ws, FakeRunner())).execute(
+                "apply_patch", {"edits": [{"path": path, "old": "value = 1", "new": "value = 2"}]}
+            )
+>           assert res.denied_rule == "patch.protected_path", res
+E           AssertionError: ToolResult(tool='apply_patch', ok=True, output={'files_changed': ['evals/tasks.json'], 'edits_applied': 1}, error_kind=None, error=None, denied_rule=None)
+E           assert None == 'patch.protected_path'
+E            +  where None = ToolResult(tool='apply_patch', ok=True, output={'files_changed': ['evals/tasks.json'], 'edits_applied': 1}, error_kind=None, error=None, denied_rule=None).denied_rule
+
+tests/test_security_review.py:589: AssertionError
+____________ test_sr03_final_diff_gate_catches_out_of_band_changes _____________
+
+settings = Settings(fixtures_dir=PosixPath('<scratch>/prefix-wt/fixtures/repos'), runs_dir=PosixPath('<tmp> offline=True)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7fdcae5c1460>
+
+    def test_sr03_final_diff_gate_catches_out_of_band_changes(
+        settings: Settings, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Defence in depth: even if a tool bug wrote to tests/, the controller rejects the diff."""
+    
+        class TamperingRunner(FakeRunner):
+            def run(self, workspace_dir: Path, command: Any) -> Any:
+                target = workspace_dir / "tests" / "test_core.py"
+                target.write_text(target.read_text().replace("assertEqual", "assertNotEqual", 1))
+                return super().run(workspace_dir, command)
+    
+        _stub_docker(monkeypatch, TamperingRunner([PASS]))
+        edit = {
+            "path": "paginator/core.py",
+            "old": "    start = page * per_page\n",
+            "new": "    start = (page - 1) * per_page\n",
+        }
+        provider = ScriptedProvider(
+            [
+                Step({"tool": "apply_patch", "args": {"edits": [edit]}}),
+                Step({"tool": "run_tests", "args": {"command": "unittest"}}),
+                Step({"tool": "finish", "args": {"summary": "fixed"}}),
+            ]
+        )
+        result = run_task(
+            TaskRequest(fixture="paginator", task="fix"), settings, provider_factory=lambda _r: provider
+        )
+>       assert result.status == "policy_aborted"
+E       AssertionError: assert 'succeeded' == 'policy_aborted'
+E         
+E         - policy_aborted
+E         + succeeded
+
+tests/test_security_review.py:619: AssertionError
+____________ test_sr04_reaper_spares_live_runs_and_removes_orphans _____________
+
+sandbox = <sandbox_agent.sandbox.DockerSandbox object at 0x7fdcae4663f0>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7fdcae465cd0>
+
+    def test_sr04_reaper_spares_live_runs_and_removes_orphans(
+        sandbox: DockerSandbox, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import subprocess  # noqa: PLC0415
+        import time  # noqa: PLC0415
+    
+>       from sandbox_agent.ownership import current_owner  # noqa: PLC0415
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       ModuleNotFoundError: No module named 'sandbox_agent.ownership'
+
+tests/test_security_review.py:633: ModuleNotFoundError
+__________________________ test_sr04_workspace_reaper __________________________
+
+tmp_path = PosixPath('<tmp>
+fixtures_dir = PosixPath('<scratch>/prefix-wt/fixtures/repos')
+
+    def test_sr04_workspace_reaper(tmp_path: Path, fixtures_dir: Path) -> None:
+        live = Workspace.create(fixtures_dir / "paginator", LIMITS, base_dir=tmp_path)
+        dead = Workspace.create(fixtures_dir / "paginator", LIMITS, base_dir=tmp_path)
+>       host = (live.root / ".owner").read_text().split(":")[0]
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_security_review.py:661: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/usr/lib/python3.12/pathlib.py:1029: in read_text
+    with self.open(mode='r', encoding=encoding, errors=errors) as f:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = PosixPath('<tmp>
+mode = 'r', buffering = -1, encoding = 'utf-8', errors = None, newline = None
+
+    def open(self, mode='r', buffering=-1, encoding=None,
+             errors=None, newline=None):
+        """
+        Open the file pointed by this path and return a file object, as
+        the built-in open() function does.
+        """
+        if "b" not in mode:
+            encoding = io.text_encoding(encoding)
+>       return io.open(self, mode, buffering, encoding, errors, newline)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       FileNotFoundError: [Errno 2] No such file or directory: '<tmp>
+
+/usr/lib/python3.12/pathlib.py:1015: FileNotFoundError
+_____________________ test_sr01_pinned_profile_is_enforced _____________________
+
+ws = PosixPath('<tmp>
+
+    def test_sr01_pinned_profile_is_enforced(ws: Path) -> None:
+        out = run_py(ws, SYSCALL_PROBE)
+        assert out.status == "completed", out
+        r = json.loads(out.stdout.strip().splitlines()[-1])
+        assert r["unshare_userns"] == [-1, 1]  # EPERM: user namespaces blocked
+        assert r["keyctl"] == [-1, 1]
+>       assert r["canary"] == [-1, 1729]  # only our pinned profile returns this errno
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       assert [-1, 1] == [-1, 1729]
+E         
+E         At index 1 diff: 1 != 1729
+E         Use -v to get more diff
+
+tests/test_security_review_docker.py:70: AssertionError
+________ test_sr01_runtime_attestation_catches_weak_seccomp[allow_all] _________
+
+ws = PosixPath('<tmp>
+tmp_path = PosixPath('<tmp>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7fdcae4685c0>
+profile = 'allow_all'
+
+    @pytest.mark.parametrize("profile", ["allow_all", "unconfined"])
+    def test_sr01_runtime_attestation_catches_weak_seccomp(
+        ws: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, profile: str
+    ) -> None:
+        if profile == "allow_all":
+            path = tmp_path / "allow.json"
+            path.write_text('{"defaultAction":"SCMP_ACT_ALLOW"}')
+            replacement = f"seccomp={path}"
+        else:
+            replacement = "seccomp=unconfined"
+        _tamper_seccomp(monkeypatch, replacement)
+        marker = "UNTRUSTED-CODE-RAN"
+>       with pytest.raises(SandboxIsolationError, match="attestation"):
+E       Failed: DID NOT RAISE SandboxIsolationError
+
+tests/test_security_review_docker.py:101: Failed
+________ test_sr01_runtime_attestation_catches_weak_seccomp[unconfined] ________
+
+ws = PosixPath('<tmp>
+tmp_path = PosixPath('<tmp>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7fdcae46ba70>
+profile = 'unconfined'
+
+    @pytest.mark.parametrize("profile", ["allow_all", "unconfined"])
+    def test_sr01_runtime_attestation_catches_weak_seccomp(
+        ws: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, profile: str
+    ) -> None:
+        if profile == "allow_all":
+            path = tmp_path / "allow.json"
+            path.write_text('{"defaultAction":"SCMP_ACT_ALLOW"}')
+            replacement = f"seccomp={path}"
+        else:
+            replacement = "seccomp=unconfined"
+        _tamper_seccomp(monkeypatch, replacement)
+        marker = "UNTRUSTED-CODE-RAN"
+>       with pytest.raises(SandboxIsolationError, match="attestation"):
+E       Failed: DID NOT RAISE SandboxIsolationError
+
+tests/test_security_review_docker.py:101: Failed
+_________________ test_sr02_image_with_extra_env_fails_closed __________________
+
+ws = PosixPath('<tmp>
+evil_env_image = 'sandbox-agent-evilenv:test'
+
+    def test_sr02_image_with_extra_env_fails_closed(ws: Path, evil_env_image: str) -> None:
+>       with pytest.raises(SandboxIsolationError, match="env"):
+E       Failed: DID NOT RAISE SandboxIsolationError
+
+tests/test_security_review_docker.py:123: Failed
+________________ test_sr02_container_env_is_exactly_configured _________________
+
+ws = PosixPath('<tmp>
+
+    def test_sr02_container_env_is_exactly_configured(ws: Path) -> None:
+        out = run_py(ws, "import os, json; print(json.dumps(dict(os.environ)))")
+        env = json.loads(out.stdout.strip().splitlines()[-1])
+>       assert env == dict(SandboxConfig().env)
+E       AssertionError: assert {'PATH': '/us...C.UTF-8', ...} == {'PATH': '/us...DE': '1', ...}
+E         
+E         Omitting 6 identical items, use -vv to show
+E         Left contains 1 more item:
+E         {'HOSTNAME': 'sandbox'}
+E         Use -v to get more diff
+
+tests/test_security_review_docker.py:132: AssertionError
+_______________ test_sr04_container_stops_when_host_process_dies _______________
+
+ws = PosixPath('<tmp>
+tmp_path = PosixPath('<tmp>
+
+    def test_sr04_container_stops_when_host_process_dies(ws: Path, tmp_path: Path) -> None:
+        script = tmp_path / "orphan.py"
+        script.write_text(
+            "import sys, pathlib\n"
+            "from sandbox_agent.sandbox import DockerSandbox, ContainerCommand\n"
+            "from sandbox_agent.config import SandboxConfig\n"
+            "ws = pathlib.Path(sys.argv[1])\n"
+            "DockerSandbox(SandboxConfig(timeout_s=3), ws.parent).run(ws, "
+            "ContainerCommand(argv=('python3', '-c', 'while True: pass')))\n"
+        )
+        proc = subprocess.Popen([sys.executable, str(script), str(ws)])
+        deadline = time.monotonic() + 30
+        while not managed() and time.monotonic() < deadline:
+            time.sleep(0.2)
+        assert managed(), "container never started"
+        os.kill(proc.pid, signal.SIGKILL)
+        proc.wait()
+        # In-container watchdog (PID 1) enforces timeout_s + grace without the host.
+        deadline = time.monotonic() + 30
+        while managed() and time.monotonic() < deadline:
+            time.sleep(0.5)
+>       assert managed() == [], "container kept running after the host process died"
+E       AssertionError: container kept running after the host process died
+E       assert ['3f526ecf34aa'] == []
+E         
+E         Left contains one more item: '3f526ecf34aa'
+E         Use -v to get more diff
+
+tests/test_security_review_docker.py:159: AssertionError
+______________ test_sr04_pid1_watchdog_cannot_be_killed_or_traced ______________
+
+ws = PosixPath('<tmp>
+
+    def test_sr04_pid1_watchdog_cannot_be_killed_or_traced(ws: Path) -> None:
+        code = """
+    import ctypes, json, os, signal
+    r = {}
+    try: os.kill(1, signal.SIGKILL); r["kill1"] = "sent"
+    except OSError as e: r["kill1"] = e.errno
+    libc = ctypes.CDLL(None, use_errno=True)
+    r["ptrace_attach"] = [libc.ptrace(16, 1, 0, 0), ctypes.get_errno()]
+    for p in ("/proc/1/mem", "/proc/1/environ"):
+        try: open(p, "rb").read(1); r[p] = "read"
+        except OSError as e: r[p] = e.errno
+    print(json.dumps(r))
+    """
+        out = run_py(ws, code)
+        assert out.status == "completed", out
+        r = json.loads(out.stdout.strip().splitlines()[-1])
+        assert r["ptrace_attach"][0] == -1
+        assert r["/proc/1/mem"] != "read"
+>       assert r["/proc/1/environ"] != "read"
+E       AssertionError: assert 'read' != 'read'
+
+tests/test_security_review_docker.py:184: AssertionError
+_______________ test_sr05_output_flood_is_stopped_early[stdout] ________________
+
+ws = PosixPath('<tmp>
+stream = 'stdout'
+
+    @pytest.mark.parametrize("stream", ["stdout", "stderr"])
+    def test_sr05_output_flood_is_stopped_early(ws: Path, stream: str) -> None:
+        started = time.monotonic()
+        out = run_py(
+            ws, f"import sys\nb = 'Z' * (1 << 20)\nwhile True: sys.{stream}.write(b)", timeout_s=20
+        )
+        elapsed = time.monotonic() - started
+>       assert out.status == "output_limit", out.status
+E       AssertionError: timeout
+E       assert 'timeout' == 'output_limit'
+E         
+E         - output_limit
+E         + timeout
+
+tests/test_security_review_docker.py:200: AssertionError
+_______________ test_sr05_output_flood_is_stopped_early[stderr] ________________
+
+ws = PosixPath('<tmp>
+stream = 'stderr'
+
+    @pytest.mark.parametrize("stream", ["stdout", "stderr"])
+    def test_sr05_output_flood_is_stopped_early(ws: Path, stream: str) -> None:
+        started = time.monotonic()
+        out = run_py(
+            ws, f"import sys\nb = 'Z' * (1 << 20)\nwhile True: sys.{stream}.write(b)", timeout_s=20
+        )
+        elapsed = time.monotonic() - started
+>       assert out.status == "output_limit", out.status
+E       AssertionError: timeout
+E       assert 'timeout' == 'output_limit'
+E         
+E         - output_limit
+E         + timeout
+
+tests/test_security_review_docker.py:200: AssertionError
+____________ test_sr13_oom_kill_is_attributed_with_cgroup_evidence _____________
+
+ws = PosixPath('<tmp>
+
+    def test_sr13_oom_kill_is_attributed_with_cgroup_evidence(ws: Path) -> None:
+        out = run_py(
+            ws,
+            "b = []\nwhile True:\n"
+            "    b.append(bytearray(32 << 20)); b[-1][::4096] = b'1' * len(b[-1][::4096])",
+        )
+        assert out.status == "oom_killed", out
+>       assert out.exit_report is not None
+               ^^^^^^^^^^^^^^^
+
+tests/test_security_review_docker.py:217: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = RunOutcome(status='oom_killed', exit_code=137, stdout='', stderr='', stdout_truncated=False, stderr_truncated=False, stdout_bytes_total=0, stderr_bytes_total=0, duration_ms=440, container='sandbox-agent-3038dc185c17')
+item = 'exit_report'
+
+    def __getattr__(self, item: str) -> Any:
+        private_attributes = object.__getattribute__(self, '__private_attributes__')
+        if item in private_attributes:
+            attribute = private_attributes[item]
+            if hasattr(attribute, '__get__'):
+                return attribute.__get__(self, type(self))  # type: ignore
+    
+            try:
+                # Note: self.__pydantic_private__ cannot be None if self.__private_attributes__ has items
+                return self.__pydantic_private__[item]  # type: ignore
+            except KeyError as exc:
+                raise AttributeError(f'{type(self).__name__!r} object has no attribute {item!r}') from exc
+        else:
+            # `__pydantic_extra__` can fail to be set if the model is not yet fully initialized.
+            # See `BaseModel.__repr_args__` for more details
+            try:
+                pydantic_extra = object.__getattribute__(self, '__pydantic_extra__')
+            except AttributeError:
+                pydantic_extra = None
+    
+            if pydantic_extra and item in pydantic_extra:
+                return pydantic_extra[item]
+            else:
+                if hasattr(self.__class__, item):
+                    return super().__getattribute__(item)  # Raises AttributeError if appropriate
+                else:
+                    # this is the current error
+>                   raise AttributeError(f'{type(self).__name__!r} object has no attribute {item!r}')
+E                   AttributeError: 'RunOutcome' object has no attribute 'exit_report'
+
+../prefix-venv/lib/python3.12/site-packages/pydantic/main.py:1105: AttributeError
+________________ test_sr13_unrelated_sigkill_is_not_called_oom _________________
+
+ws = PosixPath('<tmp>
+
+    def test_sr13_unrelated_sigkill_is_not_called_oom(ws: Path) -> None:
+        out = run_py(ws, "import os, signal\nos.kill(os.getpid(), signal.SIGKILL)")
+>       assert out.status == "killed", out
+E       AssertionError: RunOutcome(status='completed', exit_code=0, stdout='', stderr='', stdout_truncated=False, stderr_truncated=False, stdout_bytes_total=0, stderr_bytes_total=0, duration_ms=219, container='sandbox-agent-a7131a12d957')
+E       assert 'completed' == 'killed'
+E         
+E         - killed
+E         + completed
+
+tests/test_security_review_docker.py:225: AssertionError
+______________ test_sr04_sigterm_to_controller_cleans_up_promptly ______________
+
+tmp_path = PosixPath('<tmp>
+
+    def test_sr04_sigterm_to_controller_cleans_up_promptly(tmp_path: Path) -> None:
+        proc = _start_hanging_cli(tmp_path, timeout_s=60)
+>       assert _owned_workspaces(proc.pid)
+E       AssertionError: assert []
+E        +  where [] = _owned_workspaces(23692)
+E        +    where 23692 = <Popen: returncode: None args: ['/tmp/claude-0/-home-claude/b751fee5-a134-58...>.pid
+
+tests/test_security_review_docker.py:262: AssertionError
+_________________ test_sr04_sigkill_to_controller_is_recovered _________________
+
+tmp_path = PosixPath('<tmp>
+
+    def test_sr04_sigkill_to_controller_is_recovered(tmp_path: Path) -> None:
+        timeout_s = 4
+        proc = _start_hanging_cli(tmp_path, timeout_s=timeout_s)
+        workspaces = _owned_workspaces(proc.pid)
+>       assert workspaces
+E       assert []
+
+tests/test_security_review_docker.py:273: AssertionError
+=============================== warnings summary ===============================
+../prefix-venv/lib/python3.12/site-packages/fastapi/testclient.py:1
+  <scratch>/prefix-venv/lib/python3.12/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+==================================== PASSES ====================================
+=========================== short test summary info ============================
+PASSED tests/test_security_review.py::test_sr11_text_plain_post_is_rejected
+PASSED tests/test_security_review.py::test_sr12_test_output_never_enters_trace
+FAILED tests/test_security_review.py::test_sr01_verify_rejects_weak_security_options[no_profile]
+FAILED tests/test_security_review.py::test_sr01_verify_rejects_weak_security_options[allow_all_profile]
+FAILED tests/test_security_review.py::test_sr01_verify_rejects_weak_security_options[unconfined]
+FAILED tests/test_security_review.py::test_sr01_verify_rejects_weak_security_options[selinux_disabled]
+FAILED tests/test_security_review.py::test_sr01_verify_rejects_weak_security_options[apparmor]
+FAILED tests/test_security_review.py::test_sr01_verify_rejects_weak_security_options[paths]
+FAILED tests/test_security_review.py::test_sr01_verify_rejects_tampered_pinned_profile
+FAILED tests/test_security_review.py::test_sr01_verify_rejects_apparmor_unconfined_and_entrypoint
+FAILED tests/test_security_review.py::test_sr01_create_args_pin_profile_and_wrap_command
+FAILED tests/test_security_review.py::test_sr02_verify_rejects_image_provided_env
+FAILED tests/test_security_review.py::test_sr03_editing_tests_cannot_produce_success
+FAILED tests/test_security_review.py::test_sr03_protected_path_variants[tests/test_core.py]
+FAILED tests/test_security_review.py::test_sr03_protected_path_variants[./tests/test_core.py]
+FAILED tests/test_security_review.py::test_sr03_protected_path_variants[tests//test_core.py]
+FAILED tests/test_security_review.py::test_sr06_fifo_in_fixture_does_not_hang
+FAILED tests/test_security_review.py::test_sr06_fifo_fixture_task_fails_fast
+FAILED tests/test_security_review.py::test_sr07_hard_link_in_fixture_rejected
+FAILED tests/test_security_review.py::test_sr08_directory_swapped_during_copy_is_not_followed
+FAILED tests/test_security_review.py::test_sr08_file_growth_during_copy_respects_limit
+FAILED tests/test_security_review.py::test_sr09_intermediate_directory_swap_is_not_followed
+FAILED tests/test_security_review.py::test_sr09_all_workspace_opens_are_descriptor_relative
+FAILED tests/test_security_review.py::test_sr10_unreadable_fixture_file_is_workspace_error
+FAILED tests/test_security_review.py::test_sr10_unexpected_provider_exception_is_contained
+FAILED tests/test_security_review.py::test_sr10_unexpected_tool_exception_is_execution_error
+FAILED tests/test_security_review.py::test_sr11_api_rejects_foreign_host_header
+FAILED tests/test_security_review.py::test_sr12_credential_named_keys_redacted_when_nested[ANTHROPIC_API_KEY]
+FAILED tests/test_security_review.py::test_sr12_credential_named_keys_redacted_when_nested[client_secret]
+FAILED tests/test_security_review.py::test_sr12_credential_named_keys_redacted_when_nested[access_token]
+FAILED tests/test_security_review.py::test_sr12_credential_named_keys_redacted_when_nested[refresh_token]
+FAILED tests/test_security_review.py::test_sr12_credential_named_keys_redacted_when_nested[Proxy-Authorization]
+FAILED tests/test_security_review.py::test_sr12_credential_named_keys_redacted_when_nested[x-goog-api-key]
+FAILED tests/test_security_review.py::test_sr12_credential_named_keys_redacted_when_nested[private_key]
+FAILED tests/test_security_review.py::test_sr12_credential_named_keys_redacted_when_nested[db_password]
+FAILED tests/test_security_review.py::test_sr12_credential_named_keys_redacted_when_nested[AWS_SECRET_ACCESS_KEY]
+FAILED tests/test_security_review.py::test_sr12_credential_named_keys_redacted_when_nested[sessionToken]
+FAILED tests/test_security_review.py::test_sr12_credential_named_keys_redacted_when_nested[credentials]
+FAILED tests/test_security_review.py::test_sr12_encoded_registered_secret_redacted
+FAILED tests/test_security_review.py::test_sr12_custom_credential_env_var_values_redacted
+FAILED tests/test_security_review.py::test_sr12_unusual_credential_formats[basic_auth]
+FAILED tests/test_security_review.py::test_sr12_unusual_credential_formats[token_header]
+FAILED tests/test_security_review.py::test_sr12_unusual_credential_formats[url_userinfo]
+FAILED tests/test_security_review.py::test_sr12_unusual_credential_formats[aws_assignment]
+FAILED tests/test_security_review.py::test_sr12_unusual_credential_formats[json_key]
+FAILED tests/test_security_review.py::test_sr12_unusual_credential_formats[jwt]
+FAILED tests/test_security_review.py::test_sr14_reader_keeps_head_and_tail - ...
+FAILED tests/test_security_review.py::test_sr03_test_config_policy_and_eval_files_protected[conftest.py]
+FAILED tests/test_security_review.py::test_sr03_test_config_policy_and_eval_files_protected[pkg/conftest.py]
+FAILED tests/test_security_review.py::test_sr03_test_config_policy_and_eval_files_protected[pyproject.toml]
+FAILED tests/test_security_review.py::test_sr03_test_config_policy_and_eval_files_protected[setup.cfg]
+FAILED tests/test_security_review.py::test_sr03_test_config_policy_and_eval_files_protected[tox.ini]
+FAILED tests/test_security_review.py::test_sr03_test_config_policy_and_eval_files_protected[pytest.ini]
+FAILED tests/test_security_review.py::test_sr03_test_config_policy_and_eval_files_protected[sitecustomize.py]
+FAILED tests/test_security_review.py::test_sr03_test_config_policy_and_eval_files_protected[usercustomize.py]
+FAILED tests/test_security_review.py::test_sr03_test_config_policy_and_eval_files_protected[pkg/evil.pth]
+FAILED tests/test_security_review.py::test_sr03_test_config_policy_and_eval_files_protected[.sandbox-agent/policy.toml]
+FAILED tests/test_security_review.py::test_sr03_test_config_policy_and_eval_files_protected[evals/tasks.json]
+FAILED tests/test_security_review.py::test_sr03_final_diff_gate_catches_out_of_band_changes
+FAILED tests/test_security_review.py::test_sr04_reaper_spares_live_runs_and_removes_orphans
+FAILED tests/test_security_review.py::test_sr04_workspace_reaper - FileNotFou...
+FAILED tests/test_security_review_docker.py::test_sr01_pinned_profile_is_enforced
+FAILED tests/test_security_review_docker.py::test_sr01_runtime_attestation_catches_weak_seccomp[allow_all]
+FAILED tests/test_security_review_docker.py::test_sr01_runtime_attestation_catches_weak_seccomp[unconfined]
+FAILED tests/test_security_review_docker.py::test_sr02_image_with_extra_env_fails_closed
+FAILED tests/test_security_review_docker.py::test_sr02_container_env_is_exactly_configured
+FAILED tests/test_security_review_docker.py::test_sr04_container_stops_when_host_process_dies
+FAILED tests/test_security_review_docker.py::test_sr04_pid1_watchdog_cannot_be_killed_or_traced
+FAILED tests/test_security_review_docker.py::test_sr05_output_flood_is_stopped_early[stdout]
+FAILED tests/test_security_review_docker.py::test_sr05_output_flood_is_stopped_early[stderr]
+FAILED tests/test_security_review_docker.py::test_sr13_oom_kill_is_attributed_with_cgroup_evidence
+FAILED tests/test_security_review_docker.py::test_sr13_unrelated_sigkill_is_not_called_oom
+FAILED tests/test_security_review_docker.py::test_sr04_sigterm_to_controller_cleans_up_promptly
+FAILED tests/test_security_review_docker.py::test_sr04_sigkill_to_controller_is_recovered
+72 failed, 2 passed, 5 deselected, 1 warning in 85.53s (0:01:25)
