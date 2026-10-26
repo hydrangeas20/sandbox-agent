@@ -227,19 +227,27 @@ file you control:
 export ANTHROPIC_API_KEY="$(cat ~/.config/sandbox-agent/anthropic.key)"  # never commit this
 export SANDBOX_AGENT_OFFLINE=0
 
-# One task, default model claude-sonnet-5-5, capped at $0.50 and 12 model calls
-uv run sandbox-agent run --provider anthropic --fixture paginator \
+# Smoke test on Haiku 5.5: this run capped at $0.50, all runs together capped at $5
+uv run sandbox-agent run --provider anthropic --model claude-haiku-5-5 --fixture paginator \
     --task "paginate() returns the wrong items; fix it and make the tests pass" \
-    --max-cost-usd 0.50 --max-model-calls 12
+    --max-cost-usd 0.50 --experiment-budget-usd 5
 
-# The evaluation suite: per-task cap $0.50, hard stop for the whole run at $3
-uv run sandbox-agent eval --provider anthropic --max-cost-usd 0.50 --max-total-cost-usd 3
+# The evaluation suite on the same model and experiment budget
+uv run sandbox-agent eval --provider anthropic --model claude-haiku-5-5 \
+    --max-cost-usd 0.50 --max-total-cost-usd 3 --experiment-budget-usd 5
 ```
 
-Budgets are checked **before** every call against a worst-case estimate and
-updated from the API's reported `usage`. Prices come from the
+Real-model runs **require** `--experiment-budget-usd`. Each run's estimated cost is
+appended to a local ledger (`runs/spend-ledger.json`, or `--ledger`), and the next
+run's cap is reduced to whatever remains. Budgets are checked **before** every call
+against a worst-case estimate and updated from the API's reported `usage`. Failed
+requests count as calls; a timeout, reset or 5xx is charged at the worst-case
+estimate because it may have been billed, while 400/401/403/404/413/429 are charged
+nothing. These are estimates: the Console's usage page is authoritative, and a
+spend limit set in the Console is the only hard cap. Prices come from the
 [official pricing page](https://platform.claude.com/docs/en/about-claude/pricing)
-(Sonnet 5.5: $2 / $10 per MTok input/output), and unknown models are refused.
+(Haiku 5.5, `claude-haiku-5-5`: $0.10 / $0.50 per MTok input/output for prompts up
+to 100k tokens, larger prompts refused; Sonnet 5.5: $2 / $10), and unknown models are refused.
 Each call is traced as a `model_call` event (tokens, cache tokens, estimated cost,
 latency). Live results are written to `evals/results/anthropic-<model>-latest.*`,
 separate from scripted results. The live path has been tested with stub

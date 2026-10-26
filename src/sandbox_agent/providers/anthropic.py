@@ -32,7 +32,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from sandbox_agent.config import ModelBudget
-from sandbox_agent.errors import ProviderBudgetExceeded, ProviderError
+from sandbox_agent.errors import ProviderBudgetExceeded, ProviderError, ProviderHTTPError
 from sandbox_agent.providers.base import SYSTEM_PROMPT, Transcript
 from sandbox_agent.tools import TOOL_SPECS
 
@@ -58,6 +58,11 @@ _BYTES_PER_TOKEN = 2.5
 #: prompt, message framing).
 _HIDDEN_PROMPT_TOKENS = 1_000
 _ERROR_TYPE = re.compile(r"^[a-z_]{1,64}$")
+#: HTTP statuses returned before any model work is done (invalid request, auth,
+#: permission, not found, too large, rate limited). Every other failure, including
+#: timeouts, resets and 5xx, may have been processed and billed, so it is charged at
+#: the pre-call worst-case estimate.
+_UNBILLED_STATUSES = frozenset({400, 401, 403, 404, 413, 429})
 
 Transport = Callable[[dict[str, Any], dict[str, str], float], dict[str, Any]]
 
@@ -74,7 +79,9 @@ def _urllib_transport(
             data: dict[str, Any] = json.loads(resp.read(MAX_RESPONSE_BYTES))
             return data
     except urllib.error.HTTPError as exc:
-        raise ProviderError(f"anthropic API HTTP {exc.code}{_error_type(exc)}") from None
+        raise ProviderHTTPError(
+            f"anthropic API HTTP {exc.code}{_error_type(exc)}", status=exc.code
+        ) from None
     except (OSError, ValueError) as exc:  # URLError, timeouts, resets, bad JSON
         raise ProviderError(f"anthropic API request failed: {type(exc).__name__}") from None
 
@@ -304,7 +311,27 @@ class AnthropicProvider:
         }
         self.usage.calls += 1  # counted even if the request fails: it may still be billed
         started = self._clock()
-        response = self._transport(body, headers, self.budget.request_timeout_s)
+        try:
+            response = self._transport(body, headers, self.budget.request_timeout_s)
+        except ProviderError as exc:
+            status = exc.status if isinstance(exc, ProviderHTTPError) else None
+            charged = (
+                0.0 if status in _UNBILLED_STATUSES else self.estimate_worst_case_cost(body)[1]
+            )
+            self.usage.cost_usd += charged
+            self.usage.latency_ms.append(int((self._clock() - started) * 1000))
+            self.last_call = {
+                "failed": True,
+                "error": str(exc)[:200],
+                "http_status": status,
+                "cost_usd": round(charged, 6),
+                "cost_basis": "none (rejected before processing)"
+                if not charged
+                else "worst-case estimate",
+                "latency_ms": self.usage.latency_ms[-1],
+                "usage_reported": False,
+            }
+            raise
         if not isinstance(response, dict):
             raise ProviderError("anthropic API returned a non-object response")
         self.last_call = self._record(response, int((self._clock() - started) * 1000))

@@ -36,6 +36,14 @@ class ProviderError(SandboxAgentError):
     """The LLM provider failed or returned output that could not be validated."""
 
 
+class ProviderHTTPError(ProviderError):
+    """The provider answered with an HTTP error status (kept for billing decisions)."""
+
+    def __init__(self, message: str, *, status: int) -> None:
+        super().__init__(message)
+        self.status = status
+
+
 class ProviderBudgetExceeded(ProviderError):  # noqa: N818 - domain term
     """A model-call, token or cost budget would be exceeded; the task must stop."""
 

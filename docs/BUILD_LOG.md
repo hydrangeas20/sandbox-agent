@@ -101,3 +101,10 @@ Concise per-milestone progress entries. Newest last.
 - **P2 evaluation:** 8 tasks over 6 new fixtures plus paginator and hostile, with held-out tests outside the workspace and per-task and total cost caps. The scripted reference run scored 8/8, which validates the harness only. Negative harness tests show a wrong fix that fools the visible tests is caught by the held-out tests. The live-model run is pending the operator's key.
 - **P3 reliability:** forged markers, binary and unterminated output, interrupt mid-run, API single-flight.
 - **CI:** green on `1fbdf58` and `c080e04` (both jobs, `python:3.12-slim`, cgroup v2).
+
+## Pre-evaluation accounting fixes (2026-10-26)
+- Audit for the first live run on Haiku 5.5 (`claude-haiku-5-5`; $0.10 / $0.50 per MTok, ≤100k-token prompts, checked on the official model page):
+  - Failed requests were charged $0. Now a timeout, reset or 5xx is charged the pre-call worst-case estimate, while 400/401/403/404/413/429 are charged nothing, and failed calls are traced as `model_call` events.
+  - There was no budget across invocations. Now a spend ledger caps all real-model runs together, and `--experiment-budget-usd` is required.
+  - 9 failing-first tests (7 failed before the fix). Full suite 370 passed.
+- No live call was made: this cloud session has no API credential for the adapter (`ANTHROPIC_API_KEY` unset; Claude Code's own session credentials are not used).

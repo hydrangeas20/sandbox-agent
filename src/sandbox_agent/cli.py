@@ -18,9 +18,10 @@ from pathlib import Path
 from typing import Any
 
 from sandbox_agent.config import ModelBudget, SandboxConfig, Settings
-from sandbox_agent.errors import SandboxAgentError
+from sandbox_agent.errors import ProviderError, SandboxAgentError
 from sandbox_agent.sandbox import DockerSandbox
 from sandbox_agent.service import TaskRequest, TaskResult, run_task
+from sandbox_agent.spend import SpendLedger
 from sandbox_agent.workspace import FixtureRegistry
 
 DEMO_TASK = (
@@ -78,12 +79,29 @@ def _write_trace(result: TaskResult, settings: Settings, out: str | None) -> Pat
     return path
 
 
+def _ledger(args: argparse.Namespace, settings: Settings) -> SpendLedger | None:
+    """Real-model runs must declare an experiment budget; scripted runs need none."""
+    if args.provider != "anthropic":
+        return None
+    if args.experiment_budget_usd is None:
+        raise ProviderError(
+            "real-model runs require --experiment-budget-usd (total across all runs, "
+            "tracked in --ledger)"
+        )
+    path = Path(args.ledger) if args.ledger else settings.runs_dir / "spend-ledger.json"
+    return SpendLedger(path, args.experiment_budget_usd)
+
+
 def cmd_run(args: argparse.Namespace, settings: Settings) -> int:
+    ledger = _ledger(args, settings)
+    max_cost = getattr(args, "max_cost_usd", None)
+    if ledger is not None:
+        max_cost = ledger.cap(max_cost if max_cost is not None else ModelBudget().max_cost_usd)
     model_budget = ModelBudget(
         **{
             k: v
             for k, v in {
-                "max_cost_usd": getattr(args, "max_cost_usd", None),
+                "max_cost_usd": max_cost,
                 "max_model_calls": getattr(args, "max_model_calls", None),
             }.items()
             if v is not None
@@ -99,6 +117,12 @@ def cmd_run(args: argparse.Namespace, settings: Settings) -> int:
     )
     sandbox_config = SandboxConfig(timeout_s=args.timeout) if args.timeout else None
     result = run_task(req, settings, sandbox_config=sandbox_config)
+    if ledger is not None and result.model_usage:
+        u = result.model_usage
+        ledger.record(
+            f"run:{args.fixture}", model=u["model"], cost_usd=u["cost_usd"],
+            calls=u["calls"], tokens=u["total_tokens"],
+        )  # fmt: skip
     trace_path = _write_trace(result, settings, args.trace_out)
     if args.json:
         print(result.model_dump_json(indent=2))
@@ -118,17 +142,28 @@ def cmd_demo(args: argparse.Namespace, settings: Settings) -> int:
 def cmd_eval(args: argparse.Namespace, settings: Settings) -> int:
     from sandbox_agent.evals import format_markdown, run_eval  # noqa: PLC0415
 
-    budget = ModelBudget(
-        **{k: v for k, v in {"max_cost_usd": args.max_cost_usd}.items() if v is not None}
-    )
+    ledger = _ledger(args, settings)
+    per_task = args.max_cost_usd if args.max_cost_usd is not None else ModelBudget().max_cost_usd
+    total = args.max_total_cost_usd
+    if ledger is not None:
+        total = ledger.cap(total)
+        per_task = min(per_task, total)
     summary = run_eval(
         settings,
         args.provider,
         task_ids=args.task or None,
         model=args.model,
-        per_task_budget=budget,
-        max_total_cost_usd=args.max_total_cost_usd,
+        per_task_budget=ModelBudget(max_cost_usd=per_task),
+        max_total_cost_usd=total,
     )
+    if ledger is not None:
+        rows = summary["results"]
+        ledger.record(
+            f"eval:{len(rows)} tasks", model=str(summary["model"]),
+            cost_usd=summary["total_cost_usd"],
+            calls=sum(int(r.get("model_calls") or 0) for r in rows),
+            tokens=sum(int(r.get("total_tokens") or 0) for r in rows),
+        )  # fmt: skip
     print(format_markdown(summary))
     return 0 if summary["passed"] == summary["tasks"] else 1
 
@@ -155,6 +190,14 @@ def cmd_serve(args: argparse.Namespace, settings: Settings) -> int:
     return 0
 
 
+def _add_ledger_args(p: argparse.ArgumentParser) -> None:
+    p.add_argument(
+        "--experiment-budget-usd", type=float, default=None,
+        help="required for --provider anthropic: total estimated spend across all runs",
+    )  # fmt: skip
+    p.add_argument("--ledger", default=None, help="spend ledger (default: runs/spend-ledger.json)")
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="sandbox-agent", description=__doc__.split("\n")[0])
     sub = parser.add_subparsers(dest="command", required=True)
@@ -170,6 +213,8 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--model", default=None, help="model id for --provider anthropic")
     run.add_argument("--max-cost-usd", type=float, default=None, help="per-task cost cap")
     run.add_argument("--max-model-calls", type=int, default=None, help="per-task model calls")
+    for p in (run,):
+        _add_ledger_args(p)
     run.set_defaults(func=cmd_run)
 
     demo = sub.add_parser("demo", help="one-command offline demo on the paginator fixture")
@@ -185,6 +230,7 @@ def build_parser() -> argparse.ArgumentParser:
     ev.add_argument("--task", action="append", help="task id (repeatable); default: all")
     ev.add_argument("--max-cost-usd", type=float, default=None, help="per-task cost cap")
     ev.add_argument("--max-total-cost-usd", type=float, default=3.0, help="cap for the whole run")
+    _add_ledger_args(ev)
     ev.set_defaults(func=cmd_eval)
 
     sub.add_parser("preflight", help="check Docker isolation prerequisites").set_defaults(
