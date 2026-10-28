@@ -68,7 +68,7 @@ Concise per-milestone progress entries. Newest last.
 
 ## M10 — Portfolio demonstration
 - Goal: a reviewer can understand, reproduce and judge the project from the README.
-- `README.md`: Mermaid architecture with trust boundaries, threat → mitigation → test table, exact setup (`make install`, `make image`, `preflight`, `make demo`), captured demo and injection-containment output, measured results, usage/API/commands, unverified real-provider instructions, layout, limitations. `docs/DECISIONS.md`: 11 trade-off records. MIT `LICENSE` added to match `pyproject.toml` (flagged for review).
+- `README.md`: Mermaid architecture with trust boundaries, threat → mitigation → test table, exact setup (`make install`, `make image`, `preflight`, `make demo`), captured demo and injection-containment output, measured results, usage/API/commands, unverified real-provider instructions, layout, limitations. `docs/DECISIONS.md`: 11 trade-off records. A root MIT `LICENSE` was added at this point to match `pyproject.toml`; both were later removed by the owner. Third-party Apache-2.0 terms for the vendored seccomp profile remain in `src/sandbox_agent/seccomp/`.
 - Results report the concrete provider (`injection-following`) instead of the request's provider family.
 - Measured (5 runs, build host): task median 1,770 ms (1,572–1,807), sandboxed `run_tests` median 801 ms (713–876), 5/5 `succeeded`, fixture unchanged 5/5.
 - Final verification: `uv sync --frozen` OK; `make ci` (ruff, ruff format --check, mypy --strict, 249 tests) passes; `make adversarial-report` 177/0/0; `make demo` exit 0; no containers or workspaces left behind. The final gate caught a strict-typing regression from the provider-label change, fixed before commit.
