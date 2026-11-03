@@ -126,6 +126,63 @@ runs afterwards gave a median of 1,548 ms end to end and about 708 ms per
 `run_tests`, within run-to-run noise of the figures below. PID 1 is a larger piece of
 trusted code than before.
 
+### SR-16: the workload could signal the trusted PID 1
+
+**Found** in a probe in which the workload sent each signal to PID 1 and then
+printed a marker.
+
+- **SIGINT:** PID 1 raised `KeyboardInterrupt` (Python's default handler) and exited.
+  The watchdog, output relay and exit report went with it, and the host reported
+  `completed` with exit code 130.
+- **SIGALRM:** fired PID 1's deadline handler after 54 ms. The run was reported as a
+  `timeout` that never happened.
+- **SIGTERM, SIGHUP, SIGUSR1, SIGQUIT and SIGPIPE** were already dropped by the
+  kernel, because PID 1 had no handler for them.
+
+In both confirmed cases the workload died with PID 1, so containment held. The
+impact is on **result integrity**: the trusted supervisor could be disabled or a
+status forged.
+
+**Root cause.** The kernel only delivers a signal sent from inside a PID namespace
+to the namespace's init if init has installed a handler for it. Python installs one
+for SIGINT, and the entrypoint installed one for SIGALRM to implement the deadline.
+
+**Fix.**
+- `entry.py` resets every Python-level handler to `SIG_DFL` before doing anything
+  else. It uses `SIG_DFL` rather than `SIG_IGN` so the workload's inherited signal
+  dispositions are unchanged.
+- The deadline is checked by polling, every 50 ms or less, in the supervision loop.
+- On the host, `classify_outcome()` fails closed: if the exit report is missing or
+  inconsistent and the host did not stop the run itself (timeout, cancellation,
+  output backstop) and Docker reports no OOM kill, the run raises
+  `SandboxIsolationError` instead of being reported as `completed`.
+
+**Tests.**
+- `test_sr16_workload_cannot_signal_pid1` covers the 7 signals; SIGINT and SIGALRM
+  failed before the fix.
+- `test_sr16_deadline_still_enforced_without_sigalrm`.
+- `test_sr16_missing_exit_report_fails_closed`, plus the host-initiated cases.
+
+**Residual risk.** A bug in `entry.py` itself would still end the run without a
+report. The host now treats that as an untrusted result rather than a pass.
+
+### Cancellation and deadlines did not reach a running container
+
+**Found.** The controller checked its cancel flag and wall-clock budget only
+between iterations, so a running test command ran to the sandbox timeout (30 s).
+Reproduced on `main`:
+- cancelling a task during a hanging test took 30.3 s;
+- a 4 s `max_wall_clock_s` budget was overrun to 30.3 s.
+
+**Fix.** The controller passes a `RunControl` (cancel event plus deadline) through
+the tool layer to `DockerSandbox`, which waits in 100 ms slices. Cancellation stops
+the container (new status `cancelled`). A deadline earlier than the timeout stops it
+as a `timeout`, and the agent then ends with `budget_exhausted`.
+
+**Tests.** `tests/test_reliability_docker.py` covers sandbox- and task-level
+cancellation, cancel before start, caller deadline, wall-clock budget, and four
+concurrent runs that see only their own workspace.
+
 ## Controller and agent-loop verification
 
 | # | Property | Result | Evidence |

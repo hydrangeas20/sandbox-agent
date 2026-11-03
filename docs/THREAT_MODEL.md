@@ -92,6 +92,8 @@ truth for the adversarial test suite (`tests/test_adversarial.py`).
 | T23 | Hostile strings make trace redaction quadratic (ReDoS). | D | Bounded, boundary-anchored patterns. | `test_sr12_redaction_is_not_quadratic` |
 | T24 | DNS rebinding to the loopback API. | S, E | Host-header allowlist. | `test_sr11_*` |
 | T25 | Workload forges entrypoint markers to spoof attestation or OOM attribution. | S | Per-run nonce held only by non-dumpable PID 1; first/last-line positions. | `test_forged_*` |
+| T26 | Workload signals PID 1 to kill the watchdog or forge a timeout. | T, D, R | PID 1 installs no signal handlers (kernel drops namespace-internal signals to init); polled deadline; missing exit report fails closed. | `test_sr16_*` |
+| T27 | A long test run ignores cancellation or the agent's wall-clock budget. | D | `RunControl` polled by the sandbox while the container runs. | `test_reliability_docker.py` |
 
 ## 6. Assumptions
 

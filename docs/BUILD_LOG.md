@@ -169,3 +169,23 @@ Concise per-milestone progress entries. Newest last.
   - `test_uv_version_and_checksum_pinned`, which failed before the change.
   - `test_environment_and_secret_scope`: only `smoke` uses `sandbox-agent-eval`, and `ANTHROPIC_API_KEY` is the only secret referenced.
 - Checks: actionlint clean; `make ci` 415 passed; `make test-security` 177 passed.
+
+## Security, reliability and evaluation sprint (2026-11-03)
+Branch `feat/hardening-reliability-eval`, from `main` at `074f41d`. Baseline: `make ci` 415 passed.
+
+- **Slice A, SR-16: the workload could signal PID 1.**
+  - SIGINT crashed PID 1, and the host reported `completed`. SIGALRM forged a `timeout`.
+  - Fix: no signal handlers in PID 1, a polled deadline, and a missing exit report now fails closed.
+  - 7 signal tests (SIGINT and SIGALRM failed before the fix), a deadline test, and 5 classification tests.
+- **Slice B, cancellation and the wall-clock budget during test runs.**
+  - Both reached the container only between iterations. On `main`, a cancel took 30.3 s, and a 4 s budget was overrun to 30.3 s.
+  - Fix: a `RunControl` passed from the controller through the tools to the sandbox, polled every 100 ms, with a new `cancelled` status.
+  - Tests at sandbox and task level, plus 4 concurrent runs checked for isolation.
+- **Slice C, evaluation harness.**
+  - Task schema v2 with 10 tasks; two new: an inspect-only allowlist task and a recovery task.
+  - Per-task tool allowlists enforced by `ToolExecutor`.
+  - Per-run records separating task success from attempted and executed policy violations (`clean_success`).
+  - Injection behaviour reported separately from enforcement; `--repeats`; a `mock-adversarial` provider.
+  - Harness validation: scripted 10/10, all clean; adversarial mock 7/10 pass, 0 clean, 20 attempted, 0 executed.
+- **Real-model pilot not run:** no credentials in this environment, and paid runs need the owner's approval.
+- **Checks:** `make ci` 452 passed; security suites 302/0/0.

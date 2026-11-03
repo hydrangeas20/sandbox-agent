@@ -124,7 +124,14 @@ modifications of existing, non-protected regular files are allowed), and
 Sandbox run statuses (in `run_tests` results): `completed`, `timeout` (host
 timeout or in-container watchdog), `oom_killed` (Docker flag, or SIGKILL plus
 a cgroup `oom_kill` increase), `killed` (SIGKILL without OOM evidence), and
-`output_limit` (total output budget reached; PID 1 cut the output and killed the workload).
+`output_limit` (total output budget reached; PID 1 cut the output and killed the workload),
+and `cancelled` (the caller's cancel event was set while the container ran). A run
+whose exit report is missing or inconsistent raises `SandboxIsolationError` (task
+status `sandbox_error`) unless the host stopped it itself (timeout, cancellation,
+output backstop) or Docker reports an OOM kill.
+
+A task request may restrict the tools (`allowed_tools`); any other tool call is a
+policy denial (`tool.not_allowed_for_task`), and `finish` is always allowed.
 
 ## 6. Default limits
 
