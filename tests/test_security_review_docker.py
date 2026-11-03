@@ -272,6 +272,54 @@ def test_sr05_host_backstop_without_entrypoint_enforcement(
     assert managed("-a") == []
 
 
+# ============================================================ SR-16 signals to PID 1
+
+
+@pytest.mark.parametrize(
+    "sig", ["SIGINT", "SIGALRM", "SIGTERM", "SIGHUP", "SIGUSR1", "SIGQUIT", "SIGPIPE"]
+)
+def test_sr16_workload_cannot_signal_pid1(ws: Path, sig: str) -> None:
+    """PID 1 installs no signal handlers, so the kernel drops signals the workload sends it.
+
+    Before the fix, SIGINT raised KeyboardInterrupt in PID 1 (watchdog, output relay and
+    exit report gone; the host reported `completed`), and SIGALRM fired the deadline
+    handler (a forged `timeout`).
+    """
+    code = (
+        "import os, signal, time\n"
+        f"os.kill(1, signal.{sig})\n"
+        "time.sleep(0.3)\n"
+        "print('workload-alive', flush=True)\n"
+    )
+    out = run_py(ws, code)
+    assert out.exit_report is not None, "PID 1 died: no exit report"
+    assert out.exit_report["deadline"] is False
+    assert out.status == "completed", out.status
+    assert out.exit_code == 0
+    assert "workload-alive" in out.stdout
+
+
+def test_sr16_deadline_still_enforced_without_sigalrm(ws: Path) -> None:
+    """The in-container deadline no longer uses SIGALRM; it must still fire on its own."""
+    sandbox = DockerSandbox(SandboxConfig(timeout_s=30.0, watchdog_grace_s=1.0), ws.parent)
+    argv = ["python3", "-c", "import time; time.sleep(60)"]
+    original = DockerSandbox.wrapped_argv
+
+    def short_deadline(self: DockerSandbox, command: ContainerCommand) -> list[str]:
+        out = original(self, command)
+        out[out.index("--deadline") + 1] = "1.5"  # PID 1's deadline, well before the host's
+        return out
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(DockerSandbox, "wrapped_argv", short_deadline)
+        started = time.monotonic()
+        out = sandbox.run(ws, ContainerCommand(argv=tuple(argv)))
+    assert time.monotonic() - started < 10
+    assert out.status == "timeout", out.status
+    assert out.exit_report is not None
+    assert out.exit_report["deadline"] is True
+
+
 # ============================================================ SR-13 OOM evidence
 
 

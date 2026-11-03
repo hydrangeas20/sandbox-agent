@@ -38,6 +38,7 @@ import subprocess
 import threading
 import time
 import uuid
+from dataclasses import dataclass
 from pathlib import Path
 from typing import IO, Any, Literal
 
@@ -64,7 +65,57 @@ _NONCE_RE = re.compile(r"^[0-9a-f]{32}$")
 #: Security options a created container may carry, besides the pinned seccomp profile.
 _ALLOWED_SECURITY_OPTS = frozenset({"no-new-privileges", "no-new-privileges:true"})
 
-Status = Literal["completed", "timeout", "oom_killed", "killed", "output_limit"]
+Status = Literal["completed", "timeout", "oom_killed", "killed", "output_limit", "cancelled"]
+_WAIT_SLICE_S = 0.1
+
+
+@dataclass(frozen=True)
+class RunControl:
+    """Caller-side controls for one run, checked while the container runs.
+
+    ``cancel`` stops the run as soon as it is set (status ``cancelled``). ``deadline``
+    is a ``time.monotonic()`` instant (for example the agent's wall-clock budget); the
+    run is stopped there if that is earlier than the configured timeout (``timeout``).
+    """
+
+    cancel: threading.Event | None = None
+    deadline: float | None = None
+
+
+def classify_outcome(
+    *,
+    timed_out: bool,
+    cancelled: bool,
+    budget_tripped: bool,
+    docker_oom: bool,
+    exit_code: int | None,
+    report: dict[str, Any] | None,
+) -> Status:
+    """Classify a finished run. Raises if the result cannot be trusted.
+
+    Host-initiated stops (timeout, cancellation, the output backstop) and a Docker
+    OOM kill may legitimately prevent PID 1 from writing its exit report. In every
+    other case a missing (or inconsistent) report means the trusted entrypoint did not
+    finish, so the outcome is refused rather than reported as ``completed``.
+    """
+    if timed_out or (report is not None and report.get("deadline")):
+        return "timeout"
+    if cancelled:
+        return "cancelled"
+    if budget_tripped or (report is not None and report.get("output_limit")):
+        return "output_limit"
+    if docker_oom or (
+        report is not None and report.get("signal") == 9 and (report.get("oom_kills") or 0) > 0
+    ):
+        return "oom_killed"
+    if report is None:
+        raise SandboxIsolationError(
+            "trusted entrypoint ended without a valid exit report "
+            f"(container exit code {exit_code}); the run result is not trusted"
+        )
+    if exit_code == 137:
+        return "killed"
+    return "completed"
 
 
 def load_seccomp_profile() -> dict[str, Any]:
@@ -476,7 +527,9 @@ class DockerSandbox:
 
     # ------------------------------------------------------------------ run
 
-    def run(self, workspace_dir: Path, command: ContainerCommand) -> RunOutcome:
+    def run(
+        self, workspace_dir: Path, command: ContainerCommand, control: RunControl | None = None
+    ) -> RunOutcome:
         name = f"sandbox-agent-{uuid.uuid4().hex[:12]}"
         nonce = secrets.token_hex(16)
         create_args = self.build_create_args(workspace_dir, command, name, nonce=nonce)
@@ -491,7 +544,7 @@ class DockerSandbox:
                 nonce=nonce,
                 expected_argv=self.wrapped_argv(command),
             )
-            return self._start(container_id, name, nonce)
+            return self._start(container_id, name, nonce, control or RunControl())
         finally:
             self._cli("rm", "-f", container_id)
 
@@ -505,7 +558,7 @@ class DockerSandbox:
         result: dict[str, Any] = data[0]
         return result
 
-    def _start(self, container_id: str, name: str, nonce: str) -> RunOutcome:  # noqa: PLR0915
+    def _start(self, container_id: str, name: str, nonce: str, control: RunControl) -> RunOutcome:
         limit = self.config.max_output_bytes
         started = time.monotonic()
         killed_by_budget = threading.Event()
@@ -534,11 +587,8 @@ class DockerSandbox:
         err = _BoundedReader(proc.stderr, limit, budget)
         out.start()
         err.start()
-        timed_out = False
-        try:
-            proc.wait(timeout=self.config.timeout_s)
-        except subprocess.TimeoutExpired:
-            timed_out = True
+        timed_out, cancelled = self._wait(proc, started, control)
+        if timed_out or cancelled:
             self._cli("kill", container_id)
             try:
                 proc.wait(timeout=10)
@@ -554,7 +604,8 @@ class DockerSandbox:
         stderr_head, attestation, failed = _take_marker(err.text, "attest", nonce, first=True)
         if failed is not None:
             raise SandboxIsolationError(f"runtime attestation failed: {failed}")
-        if attestation is None:
+        if attestation is None and not cancelled:
+            # (A run cancelled before PID 1 attested ran no untrusted code to trust.)
             raise SandboxIsolationError(
                 "runtime attestation missing: the trusted entrypoint did not confirm isolation"
             )
@@ -564,22 +615,18 @@ class DockerSandbox:
         if report is not None and _report_exit_status(report) != exit_code:
             report = None  # inconsistent with Docker's view: ignore rather than trust it
 
-        status: Status
-        if timed_out or (report is not None and report.get("deadline")):
-            status = "timeout"
-        elif killed_by_budget.is_set() or (report is not None and report.get("output_limit")):
-            status = "output_limit"
-        elif bool(state.get("OOMKilled")) or (
-            report is not None and report.get("signal") == 9 and (report.get("oom_kills") or 0) > 0
-        ):
-            status = "oom_killed"
-        elif exit_code == 137:
-            status = "killed"
-        else:
-            status = "completed"
+        status = classify_outcome(
+            timed_out=timed_out,
+            cancelled=cancelled,
+            budget_tripped=killed_by_budget.is_set(),
+            docker_oom=bool(state.get("OOMKilled")),
+            exit_code=exit_code,
+            report=report,
+        )
+        stopped = timed_out or cancelled
         return RunOutcome(
             status=status,
-            exit_code=None if timed_out else (int(exit_code) if exit_code is not None else None),
+            exit_code=None if stopped else (int(exit_code) if exit_code is not None else None),
             stdout=out.text,
             stderr=stderr_head,
             stdout_tail=out.tail,
@@ -593,6 +640,29 @@ class DockerSandbox:
             attestation=attestation,
             exit_report=report,
         )
+
+    def _wait(
+        self, proc: subprocess.Popen[bytes], started: float, control: RunControl
+    ) -> tuple[bool, bool]:
+        """Wait for the attached container; return (timed_out, cancelled).
+
+        Polls in short slices so a cancellation or an earlier caller deadline stops the
+        run promptly instead of after the full configured timeout.
+        """
+        end = started + self.config.timeout_s
+        if control.deadline is not None:
+            end = min(end, control.deadline)
+        while True:
+            if control.cancel is not None and control.cancel.is_set():
+                return False, True
+            remaining = end - time.monotonic()
+            if remaining <= 0:
+                return True, False
+            try:
+                proc.wait(timeout=min(_WAIT_SLICE_S, remaining))
+            except subprocess.TimeoutExpired:
+                continue
+            return False, False
 
 
 def _take_marker(

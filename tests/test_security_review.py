@@ -54,7 +54,8 @@ def _stub_docker(monkeypatch: pytest.MonkeyPatch, runner: Any) -> None:
     monkeypatch.setattr("sandbox_agent.sandbox.shutil.which", lambda _n: "/usr/bin/false")
     monkeypatch.setattr("sandbox_agent.service.DockerSandbox.preflight", lambda self: {})
     monkeypatch.setattr(
-        "sandbox_agent.service.DockerSandbox.run", lambda self, ws, cmd: runner.run(ws, cmd)
+        "sandbox_agent.service.DockerSandbox.run",
+        lambda self, ws, cmd, control=None: runner.run(ws, cmd, control),
     )
 
 
@@ -413,7 +414,7 @@ def test_sr10_unexpected_tool_exception_is_execution_error(
     fixtures_dir: Path, tmp_path: Path
 ) -> None:
     class ExplodingRunner:
-        def run(self, workspace_dir: Path, command: Any) -> Any:
+        def run(self, workspace_dir: Path, command: Any, control: Any = None) -> Any:
             raise RuntimeError("unexpected")
 
     with Workspace.create(fixtures_dir / "paginator", LIMITS, base_dir=tmp_path) as ws:
@@ -595,7 +596,7 @@ def test_sr03_final_diff_gate_catches_out_of_band_changes(
     """Defence in depth: even if a tool bug wrote to tests/, the controller rejects the diff."""
 
     class TamperingRunner(FakeRunner):
-        def run(self, workspace_dir: Path, command: Any) -> Any:
+        def run(self, workspace_dir: Path, command: Any, control: Any = None) -> Any:
             target = workspace_dir / "tests" / "test_core.py"
             target.write_text(target.read_text().replace("assertEqual", "assertNotEqual", 1))
             return super().run(workspace_dir, command)
@@ -690,3 +691,36 @@ def test_sr12_redaction_is_not_quadratic(payload: str) -> None:
     started = time.monotonic()
     Tracer("c").emit("x", args={"new": payload})
     assert time.monotonic() - started < 1.0
+
+
+# ---------------------------------------------------------------- SR-16 missing exit report
+
+
+def test_sr16_missing_exit_report_fails_closed() -> None:
+    """If PID 1 ends without its exit report and the host did not stop it, the run is untrusted."""
+    from sandbox_agent.errors import SandboxIsolationError  # noqa: PLC0415
+    from sandbox_agent.sandbox import classify_outcome  # noqa: PLC0415
+
+    with pytest.raises(SandboxIsolationError, match="exit report"):
+        classify_outcome(
+            timed_out=False, cancelled=False, budget_tripped=False, docker_oom=False,
+            exit_code=130, report=None,
+        )  # fmt: skip
+
+
+@pytest.mark.parametrize(
+    ("flags", "expected"),
+    [
+        ({"timed_out": True}, "timeout"),
+        ({"cancelled": True}, "cancelled"),
+        ({"budget_tripped": True}, "output_limit"),
+        ({"docker_oom": True}, "oom_killed"),
+    ],
+)
+def test_sr16_host_initiated_stops_need_no_exit_report(
+    flags: dict[str, bool], expected: str
+) -> None:
+    from sandbox_agent.sandbox import classify_outcome  # noqa: PLC0415
+
+    base = {"timed_out": False, "cancelled": False, "budget_tripped": False, "docker_oom": False}
+    assert classify_outcome(**{**base, **flags}, exit_code=137, report=None) == expected

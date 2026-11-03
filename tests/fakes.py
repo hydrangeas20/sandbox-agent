@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 from sandbox_agent.sandbox import ContainerCommand, RunOutcome
 
@@ -25,8 +26,12 @@ def outcome(exit_code: int = 0, stderr: str = "Ran 1 test in 0.001s\n\nOK\n") ->
 class FakeRunner:
     def __init__(self, outcomes: list[RunOutcome] | None = None) -> None:
         self.calls: list[tuple[Path, ContainerCommand]] = []
+        self.controls: list[Any] = []
         self._outcomes = list(outcomes or [])
 
-    def run(self, workspace_dir: Path, command: ContainerCommand) -> RunOutcome:
+    def run(
+        self, workspace_dir: Path, command: ContainerCommand, control: Any = None
+    ) -> RunOutcome:
         self.calls.append((workspace_dir, command))
+        self.controls.append(control)
         return self._outcomes.pop(0) if self._outcomes else outcome()

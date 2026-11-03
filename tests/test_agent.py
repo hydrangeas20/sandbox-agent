@@ -214,7 +214,9 @@ def test_policy_denials_abort(ws: Workspace) -> None:
 
 def test_sandbox_failure_is_fail_closed(ws: Workspace) -> None:
     class FailingRunner:
-        def run(self, workspace_dir: Path, command: ContainerCommand) -> RunOutcome:
+        def run(
+            self, workspace_dir: Path, command: ContainerCommand, control: object = None
+        ) -> RunOutcome:
             raise SandboxIsolationError("isolation verification failed: network mode")
 
     res = controller(ws, scripted(RUN, FINISH), FailingRunner()).run("t")
@@ -290,3 +292,33 @@ def test_anthropic_request_and_parsing_with_stub_transport() -> None:
 def test_anthropic_bad_responses_yield_invalid_raw(response: dict[str, Any]) -> None:
     raw = parse_response(response)
     assert "error" in raw
+
+
+# ---------------------------------------------------------------- cancellation and deadline
+
+
+def test_controller_hands_cancel_and_deadline_to_the_runner(ws: Workspace) -> None:
+    import time  # noqa: PLC0415
+
+    runner = FakeRunner([FAIL, PASS])
+    ctl = controller(ws, paginator_fix_script(), runner, AgentBudget(max_wall_clock_s=120))
+    before = time.monotonic()
+    ctl.run("fix pagination")
+    assert runner.controls, "run_tests never reached the runner"
+    for control in runner.controls:
+        assert control.cancel is ctl.cancel
+        assert before + 119 <= control.deadline <= time.monotonic() + 120
+
+
+def test_cancel_during_a_tool_call_ends_the_task_immediately(ws: Workspace) -> None:
+    cancel = threading.Event()
+
+    class CancellingRunner(FakeRunner):
+        def run(self, workspace_dir: Path, command: ContainerCommand, control: Any = None) -> Any:
+            cancel.set()  # the operator cancels while the tests are running
+            return super().run(workspace_dir, command, control)
+
+    script = scripted(RUN, RUN, FINISH)
+    res = controller(ws, script, CancellingRunner([FAIL, PASS]), cancel=cancel).run("t")
+    assert res.status == "cancelled"
+    assert res.tool_calls == 1  # no further model call or tool call after the cancel

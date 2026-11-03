@@ -18,6 +18,7 @@ from pydantic import BaseModel, ConfigDict, ValidationError
 from sandbox_agent.config import AgentBudget
 from sandbox_agent.errors import ProviderBudgetExceeded, ProviderError
 from sandbox_agent.providers.base import AgentAction, Provider, Transcript, Turn
+from sandbox_agent.sandbox import RunControl
 from sandbox_agent.tools import ToolExecutor, ToolResult
 from sandbox_agent.trace import Tracer
 
@@ -89,6 +90,11 @@ class AgentController:
             self.tracer.emit("agent_end", **result.model_dump())
             return result
 
+        # Cancellation and the wall-clock budget also reach a running container: the
+        # sandbox polls them, so a long test run cannot outlive either.
+        self.tools.ctx.control = RunControl(
+            cancel=self.cancel, deadline=time.monotonic() + b.max_wall_clock_s
+        )
         self.tracer.emit("agent_start", provider=self.provider.name, budget=b.model_dump())
         while True:
             if self.cancel.is_set():
@@ -166,6 +172,8 @@ class AgentController:
             result = self.tools.execute(action.tool, action.args)
             elapsed = _ms(self.clock() - t1)
             self._observe(transcript, result, call_id, iterations, elapsed)
+            if self.cancel.is_set():
+                return done("cancelled", "cancellation requested")
 
             if result.ok and action.tool == "apply_patch":
                 patches += 1
