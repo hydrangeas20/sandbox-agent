@@ -36,6 +36,7 @@ from sandbox_agent.trace import Tracer
 from sandbox_agent.workspace import FixtureRegistry, Workspace, tree_manifest
 
 ProviderName = Literal["scripted", "anthropic"]
+ToolName = Literal["list_files", "read_file", "search", "apply_patch", "run_tests", "finish"]
 
 
 class TaskRequest(BaseModel):
@@ -48,6 +49,8 @@ class TaskRequest(BaseModel):
     budget: AgentBudget = Field(default_factory=AgentBudget)
     model: str | None = Field(default=None, max_length=64, pattern=r"^[a-z0-9][a-z0-9.\-]*$")
     model_budget: ModelBudget = Field(default_factory=ModelBudget)
+    # Per-task tool allowlist; None allows every tool. Enforced by ToolExecutor.
+    allowed_tools: tuple[ToolName, ...] | None = Field(default=None, max_length=6)
 
 
 class TestSummary(BaseModel):
@@ -160,7 +163,8 @@ def run_task(  # noqa: PLR0915 - linear orchestration with explicit fail-closed 
         with Workspace.create(fixture_dir, workspace_limits or WorkspaceLimits()) as ws:
             sandbox = DockerSandbox(sandbox_config or SandboxConfig(), ws.root)
             tracer.emit("sandbox_preflight", **sandbox.preflight())
-            tools = ToolExecutor(ToolContext(workspace=ws, runner=sandbox))
+            allowed = frozenset(req.allowed_tools) if req.allowed_tools is not None else None
+            tools = ToolExecutor(ToolContext(workspace=ws, runner=sandbox, allowed_tools=allowed))
             controller = AgentController(provider, tools, req.budget, tracer, cancel=cancel)
             agent_result = controller.run(req.task)
             status, reason = agent_result.status, agent_result.reason
