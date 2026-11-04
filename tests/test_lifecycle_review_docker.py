@@ -336,3 +336,27 @@ def test_external_kill_of_pid1_fails_closed_with_diagnostics(
     assert MARKER not in str(info.value)
     assert diag["cleanup"] == "removed"
     assert managed() == []
+
+
+def test_docker_start_failure_fails_closed_with_diagnostics(
+    ws: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The daemon refuses to start the container: attestation missing, never a result."""
+    original_popen = subprocess.Popen
+
+    def popen(argv: list[str], *a: Any, **kw: Any) -> Any:
+        if argv[1] == "start":
+            argv = [*argv[:-1], "sandbox-agent-no-such-container"]
+        return original_popen(argv, *a, **kw)
+
+    monkeypatch.setattr(sb.subprocess, "Popen", popen)
+    with pytest.raises(SandboxIsolationError, match="attestation missing") as info:
+        box(ws).run(ws, MARK_THEN_SLEEP)
+    diag = info.value.diagnostics
+    assert diag is not None
+    assert diag["phase"] == "attestation"
+    assert diag["attestation"] == {"status": "missing"}
+    assert diag["state"]["Status"] == "created"  # the real container never ran
+    assert "No such container" in diag["stderr_head"]  # the docker CLI's own error
+    assert diag["cleanup"] == "removed"
+    assert managed() == []

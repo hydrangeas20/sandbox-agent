@@ -235,9 +235,73 @@ These tests failed against `a6fe879`.
 `test_binary_and_unterminated_output` failed with `runtime attestation failed`. That
 is a fail-closed refusal, not a false success. It did not reproduce in the 3 later
 full runs, in 2 Docker-only suite runs, or in 80 targeted runs, idle and under CPU
-load. The daemon log shows a burst of
-cgroup v1 `epoll wait` errors around that time. The failure message was not
-captured, so the cause is not established.
+load. The failure message was not captured, so the cause is not established. See
+SA-03 below: the cgroup errors suggested at the time do not line up with the failing
+run.
+
+### SA-03: intermittent "runtime attestation failed" (unresolved)
+
+**What the message proves.**
+- `runtime attestation failed` has a single source: PID 1's own first stderr line,
+  `sandbox-agent:attest-failed <nonce> {problems}`. The only other form is the bare
+  `... missing nonce`.
+- So the entrypoint ran and one of its in-container isolation checks failed.
+- That rules out these categories, which produce "attestation missing", a different
+  marker, or a different error:
+  - execution never started;
+  - the entrypoint crashed;
+  - a malformed or truncated attestation;
+  - a controller parsing race;
+  - a container start failure.
+- Which check failed (PID, UID/GID, seccomp mode or canary, capabilities, network
+  interfaces, mount flags, nonce) was not captured. Each one reads a fixed property
+  of the container, and none has an evident timing dependence.
+
+**The cgroup hypothesis is not supported.**
+- The daemon log's two bursts of cgroup v1 `epoll wait` errors (21:09:25 and
+  21:10:46) fall during and just after a later, *passing* full run (about
+  21:07–21:10).
+- The failing run was about 20:53–20:57. In that window the daemon logged only entries
+  that recur through passing runs too: BuildKit session healthchecks from image
+  builds, and containerd channel resets.
+- Test order was checked as well. The failing test ran fourth after the `--init`
+  test, and no state is carried between them.
+
+**Diagnostics added (the attestation requirement is unchanged).**
+- `SandboxIsolationError` now carries bounded, structured diagnostics:
+  - phase (`attestation`, `exit_evidence`, `post_run_inspect`);
+  - container name and short id, exit code;
+  - Docker `State` (Status, Running, ExitCode, Error, OOMKilled, timestamps);
+  - attestation and exit-report status, host stop, byte counts;
+  - whether cleanup removed the container.
+- Attestation failures also include the failed check and a 1 KiB stderr excerpt.
+  This is entrypoint output only, because PID 1 exits before forking the workload.
+  Failures after the workload ran never include its output.
+- Rendering is capped at 2000 characters, with `phase` first so truncation cannot
+  hide it.
+- A recurrence will now name the failing check.
+
+**Stress, bounded.** `scripts/stress_sandbox.py`, also `make stress`. Environment:
+kernel 6.18.44, 2 CPUs, Docker 29.9.2, cgroup v1 (cgroupfs), overlayfs, runc.
+
+| Run | Completed | Cancelled (not started / during run) | External kill of PID 1 | Unexpected | Leftovers |
+|---|---|---|---|---|---|
+| 100 per scenario, idle | 400 | 25 / 75 | 20 refused (`exit_evidence`) | 0 | 0 |
+| 100 per scenario, 6 CPU burners | 400 | 27 / 73 | 18 `exit_evidence` + 2 `attestation(missing)` | 0 | 0 |
+| External kill only, 250 runs (50 kills), 6 burners | – | – | 49 `exit_evidence` + 1 `attestation(missing)` | 0 | 0 |
+
+The 400 completions cover rapid exits, binary with unterminated output,
+unterminated stdout, and 4-way concurrency. The cancellations land at 0.05 to 0.6 s.
+Every run met the invariants: no completion without attestation and exit report, no
+not-started run with output, and no success after PID 1 was killed. Of about 1,050
+stress runs, **none** produced `runtime attestation failed`. Kills that landed
+before PID 1 attested produced `attestation missing`, as expected. Injected failures
+(a refused `docker start`, a failed `docker kill`, a failed post-run inspect, an
+external SIGKILL) all fail closed with diagnostics and cleanup.
+
+**Status: unresolved.** The failure did not reproduce, and no defect was found. When
+it happened, the system handled it safely: the run was refused and never reported as
+a result. The new diagnostics will identify the failing check if it recurs.
 
 ## Controller and agent-loop verification
 

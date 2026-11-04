@@ -94,9 +94,12 @@ class Recorder:
         try:
             out = fn()
         except SandboxIsolationError as exc:
-            key = f"SandboxIsolationError:{(exc.diagnostics or {}).get('phase', 'unknown')}"
+            diag = exc.diagnostics or {}
+            phase = diag.get("phase", "unknown")
+            key = f"SandboxIsolationError:{phase}"
+            attestation = (diag.get("attestation") or {}).get("status")
             with self.lock:
-                self.outcomes[key] += 1
+                self.outcomes[key + (f"({attestation})" if attestation else "")] += 1
                 if key not in expect:
                     self.failures.append({"scenario": name, "error": str(exc)[:2500]})
             return
@@ -118,12 +121,17 @@ class Recorder:
                 self.failures.append({"scenario": name, "status": key, "exit": out.exit_code})
 
 
-def scenarios(box: DockerSandbox, ws: Path, runs: int, rec: Recorder) -> None:
+def scenarios(
+    box: DockerSandbox, ws: Path, runs: int, rec: Recorder, only: set[str] | None = None
+) -> None:
+    def want(name: str) -> bool:
+        return only is None or name in only
+
     def cmd(key: str) -> ContainerCommand:
         return ContainerCommand(argv=(PY, "-c", COMMANDS[key]))
 
     for key in ("rapid_exit", "binary_unterminated", "unterminated_stdout"):
-        for _ in range(runs):
+        for _ in range(runs if want(key) else 0):
             rec.record(key, lambda k=key: box.run(ws, cmd(k)), {"completed"})
 
     def concurrent_round() -> None:
@@ -142,7 +150,7 @@ def scenarios(box: DockerSandbox, ws: Path, runs: int, rec: Recorder) -> None:
                     {"completed"},
                 )
 
-    for _ in range(max(1, runs // 4)):
+    for _ in range(max(1, runs // 4) if want("concurrent") else 0):
         concurrent_round()
 
     def cancel_after(delay: float) -> RunOutcome:
@@ -152,7 +160,7 @@ def scenarios(box: DockerSandbox, ws: Path, runs: int, rec: Recorder) -> None:
 
     # Delays chosen to land during creation, around start, and while running.
     delays = (0.05, 0.2, 0.4, 0.6)
-    for i in range(runs):
+    for i in range(runs if want("cancel_during_startup") else 0):
         rec.record(
             "cancel_during_startup",
             lambda d=delays[i % 4]: cancel_after(d),
@@ -177,7 +185,7 @@ def scenarios(box: DockerSandbox, ws: Path, runs: int, rec: Recorder) -> None:
         finally:
             subprocess.Popen = original  # type: ignore[misc]
 
-    for _ in range(max(1, runs // 5)):
+    for _ in range(max(1, runs // 5) if want("external_kill_pid1") else 0):
         rec.record(
             "external_kill_pid1",
             external_kill,
@@ -195,6 +203,7 @@ def main() -> int:
     parser.add_argument("--runs", type=int, default=25, help="runs per scenario (<= 500)")
     parser.add_argument("--cpu-load", type=int, default=0, help="busy processes during the run")
     parser.add_argument("--out", type=Path, default=None)
+    parser.add_argument("--only", default=None, help="comma-separated scenario names")
     args = parser.parse_args()
     if not 1 <= args.runs <= 500 or not 0 <= args.cpu_load <= 32:
         parser.error("--runs must be 1..500 and --cpu-load 0..32")
@@ -209,7 +218,8 @@ def main() -> int:
         ws = Path(tempfile.mkdtemp(prefix="stress-", dir="/tmp")) / "ws"
         ws.mkdir()
         box = DockerSandbox(SandboxConfig(timeout_s=20.0), ws.parent)
-        scenarios(box, ws, args.runs, rec)
+        only = set(args.only.split(",")) if args.only else None
+        scenarios(box, ws, args.runs, rec, only)
     finally:
         stop.set()
         for p in burners:

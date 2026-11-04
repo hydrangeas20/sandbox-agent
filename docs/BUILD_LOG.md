@@ -200,3 +200,14 @@ Branch `feat/hardening-reliability-eval`, from `main` at `074f41d`. Baseline: `m
   - The review tests passed 5/5 idle and 5/5 under full CPU load.
   - `make ci` 484 passed; security suites 302/0/0; demo succeeded.
   - One unreproduced, fail-closed attestation failure, in the first of 4 full runs (see the PR #6 review in `SECURITY_REVIEW.md`).
+
+## SA-03: attestation-failure investigation (2026-11-03)
+- **What the failure proves:** `runtime attestation failed` comes only from PID 1's own `attest-failed` line. The entrypoint ran and an isolation check failed; which one was not captured.
+- **Ruled out:** the earlier cgroup-error correlation (those errors fall during a later passing run) and any test-order dependence.
+- **Diagnostics added:**
+  - Bounded structured diagnostics on `SandboxIsolationError`: phase, container, exit code, Docker State, attestation and exit-report status, cleanup result.
+  - The failed check and a PID 1 stderr excerpt, for attestation failures only.
+  - Rendering keeps `phase` first under truncation, which fixed a sort-order bug the new test caught.
+- **Stress (`scripts/stress_sandbox.py`, `make stress`):** about 1,050 runs, idle and under 6 CPU burners. 0 attestation failures, 0 invariant violations, 0 leftover containers. Injected start, kill, inspect and external-kill failures all fail closed with diagnostics.
+- **Status:** unresolved; no defect reproduced.
+- **Checks:** `make ci` 488 passed; security suites 302/0/0; demo succeeded.
