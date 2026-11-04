@@ -130,6 +130,23 @@ whose exit report is missing or inconsistent raises `SandboxIsolationError` (tas
 status `sandbox_error`) unless the host stopped it itself (timeout, cancellation,
 output backstop) or Docker reports an OOM kill.
 
+If cancellation or the caller's deadline is already due, the container is not
+started. This is checked before `docker create` and again immediately before
+`docker start`. The outcome is `cancelled` or `timeout` with `started: false`, and
+there is no output, attestation or exit report.
+
+Terminal-state precedence for a started run, first match wins:
+1. timeout (host timeout, caller deadline, or PID 1's deadline);
+2. cancelled (decided before the process exit was observed: an exit the host has
+   already seen is never re-labelled);
+3. output_limit;
+4. oom_killed;
+5. no valid exit report: `SandboxIsolationError`;
+6. killed;
+7. completed (only with a valid exit report that matches Docker's exit code).
+
+A run stopped by the host reports no exit code.
+
 A task request may restrict the tools (`allowed_tools`); any other tool call is a
 policy denial (`tool.not_allowed_for_task`), and `finish` is always allowed.
 

@@ -183,6 +183,62 @@ as a `timeout`, and the agent then ends with `budget_exhausted`.
 cancellation, cancel before start, caller deadline, wall-clock budget, and four
 concurrent runs that see only their own workspace.
 
+### Review of PR #6: pre-start cancellation and terminal-state attribution
+
+Two hypotheses from source review were tested with regression tests written first.
+These tests failed against `a6fe879`.
+
+**SA-01, confirmed: a pre-cancelled run executed untrusted code.**
+- Cancellation was only checked in `_wait()`, after `docker start --attach`.
+- At normal speed, with cancel set before the call, the workload printed its marker
+  in 12 of 20 runs. With `docker kill` slowed to 1 s (a loaded daemon), it did so in
+  5 of 5.
+- Fix: `RunControl.due()` is checked before `docker create` and again immediately
+  before `docker start`. A due stop returns a not-started outcome (`started: false`,
+  no output, attestation or exit report). A created container is still removed.
+- After the fix: 0 of 20 and 0 of 5 runs executed the workload.
+- Remaining window: a cancel that arrives after the final check but before the
+  daemon runs PID 1 counts as cancellation *during* execution (`started: true`).
+
+**SA-01b, confirmed: cancellation before attestation crashed.**
+- A cancel that landed before PID 1's attestation arrived built a `RunOutcome` with
+  `attestation=None`. The model rejected that with a pydantic `ValidationError`,
+  which is not a sandbox error. This happened in 8 of 20 pre-cancelled runs, and in
+  the near-simultaneous exit/cancel tests.
+- Fix: `attestation` is optional. Only a cancelled run may lack it; timeouts and
+  completions still fail closed.
+
+**SA-02, confirmed: an exit was re-labelled as a stop.**
+- `_wait()` checked cancellation and the deadline before looking at the process, so
+  an exit that had already happened was reported as `cancelled` or `timeout`.
+- Fix: each wait slice checks `proc.poll()` first.
+- The precedence is documented in `classify_outcome()` and in `SPEC.md` §5. Success
+  still requires a valid exit report that matches Docker's exit code.
+- Deterministic unit tests (`tests/test_lifecycle_review.py`) cover exit-before-cancel,
+  exit-before-deadline, exit and cancel in the same slice, and the classification
+  table. Docker tests race a fast exit against cancels at 0–500 ms.
+
+**Cleanup, confirmed: a failed stop left the attach CLI running.**
+- If `docker kill` failed (for example, a daemon timeout), the exception left
+  `docker start --attach` running and unreaped.
+- Fix: the CLI process is now killed and waited for on any exception. `run()` still
+  removes the container in its `finally`.
+
+**Disproven, kept as boundary tests:**
+- an inspect failure after a run fails closed and cleans up;
+- an unexpected exception while parsing still removes the container;
+- with `--init` (tini as PID 1), the runtime attestation refuses the run (PID 1
+  assumption enforced at run time);
+- a cancel after completion leaves the run `completed`.
+
+**Unresolved observation.** In the first of 4 full `make ci` runs after the fix,
+`test_binary_and_unterminated_output` failed with `runtime attestation failed`. That
+is a fail-closed refusal, not a false success. It did not reproduce in the 3 later
+full runs, in 2 Docker-only suite runs, or in 80 targeted runs, idle and under CPU
+load. The daemon log shows a burst of
+cgroup v1 `epoll wait` errors around that time. The failure message was not
+captured, so the cause is not established.
+
 ## Controller and agent-loop verification
 
 | # | Property | Result | Evidence |

@@ -189,3 +189,14 @@ Branch `feat/hardening-reliability-eval`, from `main` at `074f41d`. Baseline: `m
   - Harness validation: scripted 10/10, all clean; adversarial mock 7/10 pass, 0 clean, 20 attempted, 0 executed.
 - **Real-model pilot not run:** no credentials in this environment, and paid runs need the owner's approval.
 - **Checks:** `make ci` 452 passed; security suites 302/0/0.
+
+## PR #6 review: pre-start cancellation and attribution (2026-11-03)
+- **SA-01 (confirmed, fixed):** a pre-cancelled run started the container, and the workload executed in 12/20 runs (5/5 with a slow `docker kill`). Cancellation and the deadline are now checked before create and immediately before start. Not-started outcomes have `started: false`. After the fix: 0/20 and 0/5.
+- **SA-01b (confirmed, fixed):** cancelling before attestation raised a pydantic `ValidationError` (8/20). `attestation` is now optional, for cancelled runs only.
+- **SA-02 (confirmed, fixed):** an already-observed exit was labelled `cancelled` or `timeout`. `_wait()` now checks for an exit first, and the precedence is documented.
+- **Cleanup (confirmed, fixed):** a failed `docker kill` left `docker start --attach` running and unreaped. It is now reaped on any exception.
+- **Boundary tests (no defect):** inspect failure, a parse exception, `--init` refused by attestation, cancel after completion.
+- **Results:**
+  - The review tests passed 5/5 idle and 5/5 under full CPU load.
+  - `make ci` 484 passed; security suites 302/0/0; demo succeeded.
+  - One unreproduced, fail-closed attestation failure, in the first of 4 full runs (see the PR #6 review in `SECURITY_REVIEW.md`).
