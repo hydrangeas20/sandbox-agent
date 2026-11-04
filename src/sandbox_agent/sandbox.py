@@ -29,6 +29,7 @@ Flow for one run (fail closed at every step):
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import re
@@ -81,6 +82,14 @@ class RunControl:
     cancel: threading.Event | None = None
     deadline: float | None = None
 
+    def due(self) -> Status | None:
+        """The stop that is already due, if any (cancellation before deadline)."""
+        if self.cancel is not None and self.cancel.is_set():
+            return "cancelled"
+        if self.deadline is not None and time.monotonic() >= self.deadline:
+            return "timeout"
+        return None
+
 
 def classify_outcome(
     *,
@@ -91,7 +100,23 @@ def classify_outcome(
     exit_code: int | None,
     report: dict[str, Any] | None,
 ) -> Status:
-    """Classify a finished run. Raises if the result cannot be trusted.
+    """Classify a started run. Raises if the result cannot be trusted.
+
+    Precedence, first match wins (a run that was never started is ``not_started``,
+    decided before this function):
+
+    1. ``timeout`` - the host's timeout or caller deadline stopped the run, or PID 1's
+       own deadline fired (``report.deadline``);
+    2. ``cancelled`` - the host decided to cancel *before* it observed the process
+       exit (``_wait`` checks for an exit first, so a run that already finished is
+       never re-labelled); the run is then killed and its exit code is not reported;
+    3. ``output_limit`` - PID 1 cut the output at the budget, or the host backstop
+       fired;
+    4. ``oom_killed`` - Docker's OOM flag, or SIGKILL with a cgroup ``oom_kill``
+       increase in PID 1's report;
+    5. no valid exit report - ``SandboxIsolationError`` (fail closed);
+    6. ``killed`` - SIGKILL without OOM evidence;
+    7. ``completed`` - only with a valid exit report that matches Docker's exit code.
 
     Host-initiated stops (timeout, cancellation, the output backstop) and a Docker
     OOM kill may legitimately prevent PID 1 from writing its exit report. In every
@@ -170,7 +195,13 @@ class RunOutcome(BaseModel):
         workload die by SIGKILL while the cgroup's ``oom_kill`` counter increased;
       * ``killed`` - SIGKILL (exit 137) with no OOM evidence and not sent by the runner;
       * ``output_limit`` - the total output budget was reached: PID 1 cut the output at
-        the budget and killed the workload (or, as a backstop, the runner killed it).
+        the budget and killed the workload (or, as a backstop, the runner killed it);
+      * ``cancelled`` - the caller cancelled the run.
+
+    ``started`` is False when cancellation or the caller's deadline was already due
+    before the container was started: no untrusted instruction executed, and there is
+    no output, attestation or exit report. ``attestation`` is None only for a run that
+    was not started or was cancelled before PID 1's attestation arrived.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -187,8 +218,26 @@ class RunOutcome(BaseModel):
     stderr_bytes_total: int
     duration_ms: int
     container: str
-    attestation: dict[str, Any] = Field(default_factory=dict)
+    attestation: dict[str, Any] | None = Field(default_factory=dict)
     exit_report: dict[str, Any] | None = None
+    started: bool = True
+
+    @classmethod
+    def not_started(cls, status: Status, *, container: str) -> RunOutcome:
+        return cls(
+            status=status,
+            exit_code=None,
+            stdout="",
+            stderr="",
+            stdout_truncated=False,
+            stderr_truncated=False,
+            stdout_bytes_total=0,
+            stderr_bytes_total=0,
+            duration_ms=0,
+            container=container,
+            attestation=None,
+            started=False,
+        )
 
 
 class _OutputBudget:
@@ -531,6 +580,10 @@ class DockerSandbox:
         self, workspace_dir: Path, command: ContainerCommand, control: RunControl | None = None
     ) -> RunOutcome:
         name = f"sandbox-agent-{uuid.uuid4().hex[:12]}"
+        control = control or RunControl()
+        due = control.due()
+        if due is not None:  # nothing is created, let alone started
+            return RunOutcome.not_started(due, container=name)
         nonce = secrets.token_hex(16)
         create_args = self.build_create_args(workspace_dir, command, name, nonce=nonce)
         created = self._cli(*create_args)
@@ -544,7 +597,7 @@ class DockerSandbox:
                 nonce=nonce,
                 expected_argv=self.wrapped_argv(command),
             )
-            return self._start(container_id, name, nonce, control or RunControl())
+            return self._start(container_id, name, nonce, control)
         finally:
             self._cli("rm", "-f", container_id)
 
@@ -559,7 +612,6 @@ class DockerSandbox:
         return result
 
     def _start(self, container_id: str, name: str, nonce: str, control: RunControl) -> RunOutcome:
-        limit = self.config.max_output_bytes
         started = time.monotonic()
         killed_by_budget = threading.Event()
 
@@ -574,6 +626,9 @@ class DockerSandbox:
         budget = _OutputBudget(
             self.config.max_total_output_bytes + _MARKER_ALLOWANCE_BYTES, kill_for_output
         )
+        due = control.due()
+        if due is not None:  # immediately before start: the container never runs
+            return RunOutcome.not_started(due, container=name)
         proc = subprocess.Popen(
             [self._docker, "start", "--attach", container_id],
             stdout=subprocess.PIPE,
@@ -581,6 +636,34 @@ class DockerSandbox:
             stdin=subprocess.DEVNULL,
             env=_docker_cli_env(),
         )
+        try:
+            return self._supervise(
+                proc,
+                container_id=container_id,
+                name=name,
+                nonce=nonce,
+                control=control,
+                started=started,
+                budget=budget,
+                killed_by_budget=killed_by_budget,
+            )
+        except BaseException:
+            _reap(proc)  # never leave `docker start --attach` running or unreaped
+            raise
+
+    def _supervise(
+        self,
+        proc: subprocess.Popen[bytes],
+        *,
+        container_id: str,
+        name: str,
+        nonce: str,
+        control: RunControl,
+        started: float,
+        budget: _OutputBudget,
+        killed_by_budget: threading.Event,
+    ) -> RunOutcome:
+        limit = self.config.max_output_bytes
         assert proc.stdout is not None  # noqa: S101 - guaranteed by PIPE
         assert proc.stderr is not None  # noqa: S101
         out = _BoundedReader(proc.stdout, limit, budget)
@@ -605,7 +688,9 @@ class DockerSandbox:
         if failed is not None:
             raise SandboxIsolationError(f"runtime attestation failed: {failed}")
         if attestation is None and not cancelled:
-            # (A run cancelled before PID 1 attested ran no untrusted code to trust.)
+            # Only a run the caller cancelled may lack the attestation (the kill can land
+            # before PID 1's first line arrives). It is reported as `cancelled` with
+            # attestation None, and nothing from it counts as a result.
             raise SandboxIsolationError(
                 "runtime attestation missing: the trusted entrypoint did not confirm isolation"
             )
@@ -647,12 +732,16 @@ class DockerSandbox:
         """Wait for the attached container; return (timed_out, cancelled).
 
         Polls in short slices so a cancellation or an earlier caller deadline stops the
-        run promptly instead of after the full configured timeout.
+        run promptly instead of after the full configured timeout. Each slice first
+        checks whether the process has already exited: an exit the host has observed
+        is never re-labelled as a cancellation or timeout.
         """
         end = started + self.config.timeout_s
         if control.deadline is not None:
             end = min(end, control.deadline)
         while True:
+            if proc.poll() is not None:
+                return False, False
             if control.cancel is not None and control.cancel.is_set():
                 return False, True
             remaining = end - time.monotonic()
@@ -663,6 +752,14 @@ class DockerSandbox:
             except subprocess.TimeoutExpired:
                 continue
             return False, False
+
+
+def _reap(proc: subprocess.Popen[bytes]) -> None:
+    """Kill (if still running) and wait for a docker CLI process."""
+    if proc.poll() is None:
+        proc.kill()
+    with contextlib.suppress(subprocess.TimeoutExpired):  # SIGKILL was sent
+        proc.wait(timeout=10)
 
 
 def _take_marker(

@@ -73,6 +73,8 @@ def test_cancel_set_before_start_never_runs_the_workload(ws: Path) -> None:
     cancel.set()
     out = sandbox.run(ws, SLEEP, RunControl(cancel=cancel))
     assert out.status == "cancelled"
+    assert out.started is False  # the container was never started (see SA-01 tests)
+    assert out.attestation is None
     assert managed() == []
 
 
