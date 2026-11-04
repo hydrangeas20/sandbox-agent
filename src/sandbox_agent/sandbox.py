@@ -590,6 +590,7 @@ class DockerSandbox:
         if created.returncode != 0:
             raise SandboxIsolationError(f"docker create failed: {created.stderr.strip()[:500]}")
         container_id = created.stdout.strip()
+        pending: SandboxIsolationError | None = None
         try:
             self.verify(
                 self._inspect(container_id),
@@ -598,8 +599,23 @@ class DockerSandbox:
                 expected_argv=self.wrapped_argv(command),
             )
             return self._start(container_id, name, nonce, control)
+        except SandboxIsolationError as exc:
+            pending = exc
+            raise
         finally:
-            self._cli("rm", "-f", container_id)
+            self._remove(container_id, pending)
+
+    def _remove(self, container_id: str, pending: SandboxIsolationError | None) -> None:
+        """`docker rm -f`; record the result on a pending error instead of masking it."""
+        try:
+            res = self._cli("rm", "-f", container_id)
+            result = "removed" if res.returncode == 0 else f"rm failed: {res.stderr.strip()[:200]}"
+        except SandboxUnavailableError as exc:
+            if pending is None:
+                raise
+            result = f"rm failed: {exc}"[:200]
+        if pending is not None and pending.diagnostics is not None:
+            pending.diagnostics["cleanup"] = result
 
     def _inspect(self, container_id: str) -> dict[str, Any]:
         res = self._cli("inspect", container_id)
@@ -681,33 +697,76 @@ class DockerSandbox:
         out.join(timeout=5)
         err.join(timeout=5)
         duration_ms = int((time.monotonic() - started) * 1000)
-        state = self._inspect(container_id).get("State") or {}
+        host_stop = "timeout" if timed_out else ("cancelled" if cancelled else None)
+        base: dict[str, Any] = {
+            "container": name,
+            "container_id": container_id[:12],
+            "host_stop": host_stop,
+            "elapsed_ms": duration_ms,
+            "stdout_bytes": out.total,
+            "stderr_bytes": err.total,
+        }
+        try:
+            state = self._inspect(container_id).get("State") or {}
+        except SandboxIsolationError as exc:
+            raise SandboxIsolationError(
+                exc.message, diagnostics={"phase": "post_run_inspect", **base}
+            ) from exc
         exit_code = state.get("ExitCode")
+        base["exit_code"] = exit_code
+        base["state"] = {k: _bounded(state.get(k)) for k in _STATE_KEYS}
 
         stderr_head, attestation, failed = _take_marker(err.text, "attest", nonce, first=True)
         if failed is not None:
-            raise SandboxIsolationError(f"runtime attestation failed: {failed}")
+            raise SandboxIsolationError(
+                f"runtime attestation failed: {failed}",
+                diagnostics={
+                    "phase": "attestation",
+                    "attestation": {"status": "failed", "detail": _bounded(failed, 600)},
+                    "stderr_head": err.text[:1024],  # PID 1 output: it exits before forking
+                    **base,
+                },
+            )
         if attestation is None and not cancelled:
             # Only a run the caller cancelled may lack the attestation (the kill can land
             # before PID 1's first line arrives). It is reported as `cancelled` with
             # attestation None, and nothing from it counts as a result.
             raise SandboxIsolationError(
-                "runtime attestation missing: the trusted entrypoint did not confirm isolation"
+                "runtime attestation missing: the trusted entrypoint did not confirm isolation",
+                diagnostics={
+                    "phase": "attestation",
+                    "attestation": {"status": "missing"},
+                    "stderr_head": err.text[:1024],  # nothing ran after PID 1 without it
+                    **base,
+                },
             )
         stderr_tail, report, _ = _take_marker(err.tail, "exit", nonce, first=False)
         if err.total <= limit:
             stderr_head, _, _ = _take_marker(stderr_head, "exit", nonce, first=False)
+        report_state = "valid" if report is not None else "missing"
         if report is not None and _report_exit_status(report) != exit_code:
             report = None  # inconsistent with Docker's view: ignore rather than trust it
+            report_state = "inconsistent"
 
-        status = classify_outcome(
-            timed_out=timed_out,
-            cancelled=cancelled,
-            budget_tripped=killed_by_budget.is_set(),
-            docker_oom=bool(state.get("OOMKilled")),
-            exit_code=exit_code,
-            report=report,
-        )
+        try:
+            status = classify_outcome(
+                timed_out=timed_out,
+                cancelled=cancelled,
+                budget_tripped=killed_by_budget.is_set(),
+                docker_oom=bool(state.get("OOMKilled")),
+                exit_code=exit_code,
+                report=report,
+            )
+        except SandboxIsolationError as exc:
+            raise SandboxIsolationError(
+                exc.message,
+                diagnostics={
+                    "phase": "exit_evidence",
+                    "attestation": {"status": "present" if attestation else "missing"},
+                    "exit_report": report_state,
+                    **base,
+                },
+            ) from exc
         stopped = timed_out or cancelled
         return RunOutcome(
             status=status,
@@ -752,6 +811,17 @@ class DockerSandbox:
             except subprocess.TimeoutExpired:
                 continue
             return False, False
+
+
+_STATE_KEYS = ("Status", "Running", "ExitCode", "Error", "OOMKilled", "StartedAt", "FinishedAt")
+
+
+def _bounded(value: Any, limit: int = 300) -> Any:
+    """Diagnostics values: keep scalars, cap strings and anything rendered as text."""
+    if value is None or isinstance(value, (bool, int, float)):
+        return value
+    text = value if isinstance(value, str) else json.dumps(value, default=str)
+    return text if len(text) <= limit else text[:limit] + "..."
 
 
 def _reap(proc: subprocess.Popen[bytes]) -> None:

@@ -257,8 +257,12 @@ def test_inspect_failure_after_run_fails_closed_and_cleans_up(
         return original_inspect(self, container_id)
 
     monkeypatch.setattr(DockerSandbox, "_inspect", inspect)
-    with pytest.raises(SandboxIsolationError, match="inspect failed"):
+    with pytest.raises(SandboxIsolationError, match="inspect failed") as info:
         box(ws).run(ws, EXIT_AT_ONCE)
+    diag = info.value.diagnostics
+    assert diag is not None
+    assert diag["phase"] == "post_run_inspect"
+    assert diag["cleanup"] == "removed"
     assert managed() == []
 
 
@@ -285,6 +289,50 @@ def test_pid1_assumption_enforced_when_docker_injects_an_init(
         return [args[0], "--init", *args[1:]]  # "create", "--init", ...
 
     monkeypatch.setattr(DockerSandbox, "build_create_args", with_init)
-    with pytest.raises(SandboxIsolationError, match="attestation failed"):
+    with pytest.raises(SandboxIsolationError, match="attestation failed") as info:
         box(ws).run(ws, MARK_THEN_SLEEP)
+    # SA-03: an attestation failure carries bounded diagnostics, including which check.
+    diag = info.value.diagnostics
+    assert diag is not None
+    assert diag["phase"] == "attestation"
+    assert diag["attestation"]["status"] == "failed"
+    assert "expected 1" in diag["attestation"]["detail"]  # "entrypoint is pid N, expected 1"
+    assert diag["exit_code"] == 121
+    assert diag["state"]["Status"] == "exited"
+    assert len(diag["container_id"]) == 12
+    assert "attest-failed" in diag["stderr_head"]
+    assert diag["cleanup"] == "removed"
+    assert MARKER not in str(info.value)  # the workload never ran
+    assert len(str(info.value)) < 2600
+    assert managed() == []
+
+
+def test_external_kill_of_pid1_fails_closed_with_diagnostics(
+    ws: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Something outside the sandbox SIGKILLs PID 1 mid-run: never a success."""
+    original_popen = subprocess.Popen
+
+    def popen(argv: list[str], *a: Any, **kw: Any) -> Any:
+        proc = original_popen(argv, *a, **kw)
+        if argv[1] == "start":
+            container_id = argv[-1]
+            threading.Timer(
+                1.0, subprocess.run, args=([DOCKER, "kill", container_id],),
+                kwargs={"capture_output": True, "check": False},
+            ).start()  # fmt: skip
+        return proc
+
+    monkeypatch.setattr(sb.subprocess, "Popen", popen)
+    with pytest.raises(SandboxIsolationError, match="exit report") as info:
+        box(ws).run(ws, MARK_THEN_SLEEP)
+    diag = info.value.diagnostics
+    assert diag is not None
+    assert diag["phase"] == "exit_evidence"
+    assert diag["exit_report"] == "missing"
+    assert diag["attestation"]["status"] == "present"
+    assert diag["exit_code"] == 137
+    assert "stderr_head" not in diag  # the workload ran: no output in diagnostics
+    assert MARKER not in str(info.value)
+    assert diag["cleanup"] == "removed"
     assert managed() == []

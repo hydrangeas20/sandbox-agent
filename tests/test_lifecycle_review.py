@@ -141,3 +141,21 @@ def test_not_started_outcome_carries_no_execution_evidence() -> None:
     assert out.exit_report is None
     assert out.exit_code is None
     assert (out.stdout, out.stderr, out.stdout_bytes_total) == ("", "", 0)
+
+
+# ---------------------------------------------------------------- SA-03 diagnostics
+
+
+def test_isolation_error_without_diagnostics_is_unchanged() -> None:
+    assert str(SandboxIsolationError("plain")) == "plain"
+
+
+def test_isolation_error_diagnostics_are_bounded() -> None:
+    exc = SandboxIsolationError(
+        "runtime attestation failed", diagnostics={"phase": "attestation", "blob": "x" * 10_000}
+    )
+    text = str(exc)
+    assert text.startswith("runtime attestation failed [diagnostics: ")
+    assert '"phase": "attestation"' in text
+    assert len(text) < 2100
+    assert text.endswith("...(truncated)]")
