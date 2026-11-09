@@ -221,6 +221,10 @@ class RunOutcome(BaseModel):
     attestation: dict[str, Any] | None = Field(default_factory=dict)
     exit_report: dict[str, Any] | None = None
     started: bool = True
+    # Result of `docker rm -f` for this run: "removed", "removed (already absent)",
+    # "not created" or "failed: <reason>". A failed removal never changes the status:
+    # the container is left for reap_stale(), and the failure is reported, not hidden.
+    cleanup: str = "removed"
 
     @classmethod
     def not_started(cls, status: Status, *, container: str) -> RunOutcome:
@@ -237,6 +241,7 @@ class RunOutcome(BaseModel):
             container=container,
             attestation=None,
             started=False,
+            cleanup="not created",
         )
 
 
@@ -390,9 +395,8 @@ class DockerSandbox:
             expired = not deadline.strip().isdigit() or int(deadline) < now
             if expired or owner_alive(owner) is False:
                 stale.append(cid)
-        if stale:
-            self._cli("rm", "-f", *stale)
-        return len(stale)
+        # One container per call, so the count reflects what was actually removed.
+        return sum(1 for cid in stale if not self._remove(cid).startswith("failed"))
 
     # ------------------------------------------------------------------ arguments
 
@@ -590,7 +594,6 @@ class DockerSandbox:
         if created.returncode != 0:
             raise SandboxIsolationError(f"docker create failed: {created.stderr.strip()[:500]}")
         container_id = created.stdout.strip()
-        pending: SandboxIsolationError | None = None
         try:
             self.verify(
                 self._inspect(container_id),
@@ -598,24 +601,33 @@ class DockerSandbox:
                 nonce=nonce,
                 expected_argv=self.wrapped_argv(command),
             )
-            return self._start(container_id, name, nonce, control)
-        except SandboxIsolationError as exc:
-            pending = exc
+            outcome = self._start(container_id, name, nonce, control)
+        except BaseException as exc:
+            # Cleanup is reported on the original error and never replaces it.
+            cleanup = self._remove(container_id)
+            if isinstance(exc, SandboxIsolationError) and exc.diagnostics is not None:
+                exc.diagnostics["cleanup"] = cleanup
+            elif cleanup.startswith("failed"):
+                exc.add_note(f"sandbox cleanup failed for {container_id[:12]}: {cleanup}")
             raise
-        finally:
-            self._remove(container_id, pending)
+        return outcome.model_copy(update={"cleanup": self._remove(container_id)})
 
-    def _remove(self, container_id: str, pending: SandboxIsolationError | None) -> None:
-        """`docker rm -f`; record the result on a pending error instead of masking it."""
+    def _remove(self, container_id: str) -> str:
+        """`docker rm -f` and report what happened; never raises.
+
+        A non-zero exit is a failure unless the daemon says the container no longer
+        exists. A failed removal leaves the container for ``reap_stale``.
+        """
         try:
             res = self._cli("rm", "-f", container_id)
-            result = "removed" if res.returncode == 0 else f"rm failed: {res.stderr.strip()[:200]}"
         except SandboxUnavailableError as exc:
-            if pending is None:
-                raise
-            result = f"rm failed: {exc}"[:200]
-        if pending is not None and pending.diagnostics is not None:
-            pending.diagnostics["cleanup"] = result
+            return f"failed: {exc}"[:300]
+        if res.returncode == 0:
+            return "removed"
+        error = res.stderr.strip()
+        if "No such container" in error:
+            return "removed (already absent)"
+        return f"failed: {error[:200] or f'docker rm exited {res.returncode}'}"
 
     def _inspect(self, container_id: str) -> dict[str, Any]:
         res = self._cli("inspect", container_id)

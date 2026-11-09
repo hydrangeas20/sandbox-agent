@@ -272,6 +272,7 @@ class ToolExecutor:
                 "output_limited": outcome.status == "output_limit",
                 "cancelled": outcome.status == "cancelled",
                 "started": outcome.started,
+                "cleanup": outcome.cleanup,
                 "stdout_bytes": outcome.stdout_bytes_total,
                 "stderr_bytes": outcome.stderr_bytes_total,
                 "attested": bool(outcome.attestation),

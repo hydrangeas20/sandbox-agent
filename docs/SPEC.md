@@ -147,6 +147,11 @@ Terminal-state precedence for a started run, first match wins:
 
 A run stopped by the host reports no exit code.
 
+Every outcome reports `cleanup`: `removed`, `removed (already absent)`, `not created`
+or `failed: <reason>`. A failed removal never changes the status: the container is
+left for `reap_stale()` and the failure is reported. On an error, cleanup is recorded
+in the error's diagnostics or as an exception note, and never replaces the error.
+
 A task request may restrict the tools (`allowed_tools`); any other tool call is a
 policy denial (`tool.not_allowed_for_task`), and `finish` is always allowed.
 

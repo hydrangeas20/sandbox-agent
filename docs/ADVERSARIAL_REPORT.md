@@ -1,6 +1,6 @@
 # Adversarial Evaluation Report
 
-Generated 2026-11-04 04:05 UTC by `scripts/adversarial_report.py` from pytest JUnit output. Docker server 29.9.2. Skipped tests are listed as SKIPPED, never as passes.
+Generated 2026-11-09 02:31 UTC by `scripts/adversarial_report.py` from pytest JUnit output. Docker server 29.9.2. Skipped tests are listed as SKIPPED, never as passes.
 
 **Totals:** 302 pass, 0 fail, 0 skipped.
 

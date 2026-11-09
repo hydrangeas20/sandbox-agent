@@ -360,3 +360,98 @@ def test_docker_start_failure_fails_closed_with_diagnostics(
     assert "No such container" in diag["stderr_head"]  # the docker CLI's own error
     assert diag["cleanup"] == "removed"
     assert managed() == []
+
+
+# ---------------------------------------------------------------- docker rm failures (audit)
+
+
+@pytest.fixture
+def failing_rm(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
+    """`docker rm` exits non-zero without raising and without removing anything."""
+    state: dict[str, Any] = {"mode": "fail", "calls": 0}
+    original_cli = DockerSandbox._cli
+
+    def cli(self: DockerSandbox, *args: str, **kw: Any) -> Any:
+        if args[0] == "rm" and state["mode"] != "off":
+            state["calls"] += 1
+            if state["mode"] == "absent":  # really removed, then a non-zero exit
+                original_cli(self, *args, **kw)
+                return subprocess.CompletedProcess(
+                    args, 1, "", "Error response from daemon: No such container: x"
+                )
+            if state["mode"] == "raise":
+                raise SandboxUnavailableError("docker rm failed: timed out after 30 s")
+            return subprocess.CompletedProcess(
+                args, 1, "", "Error response from daemon: simulated removal failure"
+            )
+        return original_cli(self, *args, **kw)
+
+    monkeypatch.setattr(DockerSandbox, "_cli", cli)
+    yield state
+    subprocess.run([DOCKER, "rm", "-f", *managed()], capture_output=True, check=False)
+
+
+def test_rm_failure_after_success_is_reported_not_ignored(
+    ws: Path, failing_rm: dict[str, Any]
+) -> None:
+    out = box(ws).run(ws, EXIT_AT_ONCE)
+    assert out.status == "completed"  # the verified result is kept
+    assert out.exit_report is not None
+    assert out.cleanup.startswith("failed"), out.cleanup  # but not reported as clean
+    assert "simulated removal failure" in out.cleanup
+    assert len(managed()) == 1  # the container really is still there
+
+
+def test_rm_reporting_absent_container_counts_as_removed(
+    ws: Path, failing_rm: dict[str, Any]
+) -> None:
+    failing_rm["mode"] = "absent"
+    out = box(ws).run(ws, EXIT_AT_ONCE)
+    assert out.status == "completed"
+    assert out.cleanup == "removed (already absent)"
+    assert managed() == []
+
+
+def test_rm_error_never_masks_the_original_failure(
+    ws: Path, failing_rm: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    failing_rm["mode"] = "raise"
+
+    def boom(*_a: Any, **_kw: Any) -> Any:
+        raise RuntimeError("original execution failure")
+
+    monkeypatch.setattr(sb, "_take_marker", boom)
+    with pytest.raises(RuntimeError, match="original execution failure") as info:
+        box(ws).run(ws, EXIT_AT_ONCE)
+    notes = getattr(info.value, "__notes__", [])
+    assert any("cleanup failed" in n and "timed out" in n for n in notes), notes
+
+
+def test_rm_failure_on_isolation_error_is_in_the_diagnostics(
+    ws: Path, failing_rm: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    original = DockerSandbox.build_create_args
+
+    def with_init(self: DockerSandbox, *a: Any, **kw: Any) -> list[str]:
+        args = original(self, *a, **kw)
+        return [args[0], "--init", *args[1:]]
+
+    monkeypatch.setattr(DockerSandbox, "build_create_args", with_init)
+    with pytest.raises(SandboxIsolationError, match="attestation failed") as info:
+        box(ws).run(ws, MARK_THEN_SLEEP)
+    assert info.value.diagnostics is not None
+    assert info.value.diagnostics["cleanup"].startswith("failed")
+
+
+def test_reaper_counts_only_containers_it_actually_removed(
+    ws: Path, failing_rm: dict[str, Any]
+) -> None:
+    sandbox = box(ws)
+    sandbox.run(ws, EXIT_AT_ONCE)  # leaves one container behind (rm fails)
+    assert len(managed()) == 1
+    far_future = time.time() + 10**6  # past every reap deadline
+    assert sandbox.reap_stale(now=far_future) == 0  # removal failed: nothing reaped
+    assert len(managed()) == 1
+    failing_rm["mode"] = "off"
+    assert sandbox.reap_stale(now=far_future) == 1
+    assert managed() == []

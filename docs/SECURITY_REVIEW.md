@@ -303,6 +303,51 @@ external SIGKILL) all fail closed with diagnostics and cleanup.
 it happened, the system handled it safely: the run was refused and never reported as
 a result. The new diagnostics will identify the failing check if it recurs.
 
+### Final release audit (PR #6)
+
+The whole path was audited, from model output through tool gate, workspace,
+container configuration, PID 1 and host lifecycle, to teardown. Each guarantee is
+mapped to its enforcing code and its regression tests in [`GUARANTEES.md`](GUARANTEES.md);
+`tests/test_guarantees_doc.py` keeps that map honest.
+
+**P1, confirmed and fixed: a failed `docker rm` was ignored, or masked the original
+error.** All three cases below were written as failing tests first; all pass after
+the fix.
+
+- **Ignored.** With no error pending, a non-zero `docker rm -f` was ignored: the run
+  returned its result, nothing reported the failure, and the container stayed until
+  the reaper's deadline.
+- **Masked.** If the original failure was not a `SandboxIsolationError` (for example a
+  failed `docker kill`, or an unexpected exception), an `rm` that raised replaced it.
+  The execution failure was hidden.
+- **Overcounted.** `reap_stale()` ignored its own `rm` exit status and reported every
+  stale container as reaped.
+
+Fix: `_remove()` never raises and returns `removed`, `removed (already absent)` (the
+daemon says the container is gone) or `failed: <reason>`.
+- A successful run keeps its verified status and reports the failure in
+  `RunOutcome.cleanup`, which the tool layer also exposes.
+- An isolation error records it in its diagnostics.
+- Any other exception keeps propagating, with the cleanup failure added as an
+  exception note.
+- The reaper removes containers one at a time and counts only real removals.
+- A container whose removal failed is left for `reap_stale()`.
+
+**P2, documented and not fixed: the run nonce appears in attestation-failure
+diagnostics.** PID 1's `attest-failed` line carries the per-run nonce, so the 1 KiB
+stderr excerpt in the diagnostics includes it, and that text can reach a
+model-visible tool error and the trace. The nonce only authenticates markers for that
+one run. By the time the error is raised the container has exited, and every run
+gets a fresh nonce, so it is not exploitable. Masking it in the excerpt is a small
+follow-up.
+
+**Re-verified.** SA-01, SA-01b, SA-02, the attach-CLI cleanup and SA-03's fail-closed
+handling were all re-checked: their tests pass, and the committed evaluation results
+reproduce exactly (scripted 10/10, all clean; adversarial mock 7/10, 0 clean, 20
+attempted and 0 executed violations, with identical per-run outcomes).
+
+No P0 or other P1 findings.
+
 ## Controller and agent-loop verification
 
 | # | Property | Result | Evidence |

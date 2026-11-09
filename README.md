@@ -101,7 +101,7 @@ With the denial budget raised so that every directive is attempted, all 10 out-o
 
 | Evidence | Result | Source |
 | --- | --- | --- |
-| Test suite | **488 tests.** In CI: 388 without Docker (job `quality`, with Ruff, `ruff format` and `mypy --strict`) and 100 Docker, end-to-end and adversarial tests (job `sandbox`, `python:3.12-slim`, cgroup v2). | [`ci.yml`](.github/workflows/ci.yml) |
+| Test suite | **495 tests.** In CI: 390 without Docker (job `quality`, with Ruff, `ruff format` and `mypy --strict`) and 105 Docker, end-to-end and adversarial tests (job `sandbox`, `python:3.12-slim`, cgroup v2). | [`ci.yml`](.github/workflows/ci.yml) |
 | Security suites | **302 pass, 0 fail, 0 skipped.** Skips are reported as skips, never as passes. | [`ADVERSARIAL_REPORT.md`](docs/ADVERSARIAL_REPORT.md) |
 | Security-review regressions | Each confirmed finding has a test written against the pre-fix code: **2 passed, 72 failed before** (the 2 passes are false-positive checks); **79 passed, 0 failed after**. | [`REGRESSION_EVIDENCE.md`](docs/security-review/REGRESSION_EVIDENCE.md) |
 | Prompt-injection containment | 10 of 10 injected out-of-policy actions denied; the model's success claim ignored; fixtures unchanged. | [`test_adversarial.py`](tests/test_adversarial.py) |

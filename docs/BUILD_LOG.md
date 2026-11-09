@@ -211,3 +211,15 @@ Branch `feat/hardening-reliability-eval`, from `main` at `074f41d`. Baseline: `m
 - **Stress (`scripts/stress_sandbox.py`, `make stress`):** about 1,050 runs, idle and under 6 CPU burners. 0 attestation failures, 0 invariant violations, 0 leftover containers. Injected start, kill, inspect and external-kill failures all fail closed with diagnostics.
 - **Status:** unresolved; no defect reproduced.
 - **Checks:** `make ci` 488 passed; security suites 302/0/0; demo succeeded.
+
+## Final release audit (2026-11-08)
+- **Baseline at `fe76502`:** `make ci` 488 passed, 0 skipped; security suites 302/0/0; demo succeeded. Environment: kernel 6.18.44, 2 CPUs, Docker 29.9.2, cgroup v1, overlayfs, runc.
+- **P1 fixed: `docker rm` failures.** A non-zero exit was ignored on success, an `rm` error could replace the original exception, and the reaper counted failed removals.
+  - `_remove()` now reports `removed`, `removed (already absent)` or `failed: ...` and never raises.
+  - `RunOutcome.cleanup` and the tool resources carry the result; errors keep their original type, with the cleanup result in diagnostics or an exception note.
+  - The reaper counts only real removals.
+  - 5 regression tests, all failing first.
+- **P2 documented:** the per-run nonce appears in attestation-failure diagnostics. It is not exploitable.
+- **`docs/GUARANTEES.md`:** guarantee → enforcing code → regression tests, checked by `tests/test_guarantees_doc.py`.
+- **Evaluation results reproduce exactly** (scripted and adversarial mock, per run).
+- **Checks:** `make ci` 495 passed (390 / 105); security suites 302/0/0.
