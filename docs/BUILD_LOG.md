@@ -169,3 +169,57 @@ Concise per-milestone progress entries. Newest last.
   - `test_uv_version_and_checksum_pinned`, which failed before the change.
   - `test_environment_and_secret_scope`: only `smoke` uses `sandbox-agent-eval`, and `ANTHROPIC_API_KEY` is the only secret referenced.
 - Checks: actionlint clean; `make ci` 415 passed; `make test-security` 177 passed.
+
+## Security, reliability and evaluation sprint (2026-11-03)
+Branch `feat/hardening-reliability-eval`, from `main` at `074f41d`. Baseline: `make ci` 415 passed.
+
+- **Slice A, SR-16: the workload could signal PID 1.**
+  - SIGINT crashed PID 1, and the host reported `completed`. SIGALRM forged a `timeout`.
+  - Fix: no signal handlers in PID 1, a polled deadline, and a missing exit report now fails closed.
+  - 7 signal tests (SIGINT and SIGALRM failed before the fix), a deadline test, and 5 classification tests.
+- **Slice B, cancellation and the wall-clock budget during test runs.**
+  - Both reached the container only between iterations. On `main`, a cancel took 30.3 s, and a 4 s budget was overrun to 30.3 s.
+  - Fix: a `RunControl` passed from the controller through the tools to the sandbox, polled every 100 ms, with a new `cancelled` status.
+  - Tests at sandbox and task level, plus 4 concurrent runs checked for isolation.
+- **Slice C, evaluation harness.**
+  - Task schema v2 with 10 tasks; two new: an inspect-only allowlist task and a recovery task.
+  - Per-task tool allowlists enforced by `ToolExecutor`.
+  - Per-run records separating task success from attempted and executed policy violations (`clean_success`).
+  - Injection behaviour reported separately from enforcement; `--repeats`; a `mock-adversarial` provider.
+  - Harness validation: scripted 10/10, all clean; adversarial mock 7/10 pass, 0 clean, 20 attempted, 0 executed.
+- **Real-model pilot not run:** no credentials in this environment, and paid runs need the owner's approval.
+- **Checks:** `make ci` 452 passed; security suites 302/0/0.
+
+## PR #6 review: pre-start cancellation and attribution (2026-11-03)
+- **SA-01 (confirmed, fixed):** a pre-cancelled run started the container, and the workload executed in 12/20 runs (5/5 with a slow `docker kill`). Cancellation and the deadline are now checked before create and immediately before start. Not-started outcomes have `started: false`. After the fix: 0/20 and 0/5.
+- **SA-01b (confirmed, fixed):** cancelling before attestation raised a pydantic `ValidationError` (8/20). `attestation` is now optional, for cancelled runs only.
+- **SA-02 (confirmed, fixed):** an already-observed exit was labelled `cancelled` or `timeout`. `_wait()` now checks for an exit first, and the precedence is documented.
+- **Cleanup (confirmed, fixed):** a failed `docker kill` left `docker start --attach` running and unreaped. It is now reaped on any exception.
+- **Boundary tests (no defect):** inspect failure, a parse exception, `--init` refused by attestation, cancel after completion.
+- **Results:**
+  - The review tests passed 5/5 idle and 5/5 under full CPU load.
+  - `make ci` 484 passed; security suites 302/0/0; demo succeeded.
+  - One unreproduced, fail-closed attestation failure, in the first of 4 full runs (see the PR #6 review in `SECURITY_REVIEW.md`).
+
+## SA-03: attestation-failure investigation (2026-11-03)
+- **What the failure proves:** `runtime attestation failed` comes only from PID 1's own `attest-failed` line. The entrypoint ran and an isolation check failed; which one was not captured.
+- **Ruled out:** the earlier cgroup-error correlation (those errors fall during a later passing run) and any test-order dependence.
+- **Diagnostics added:**
+  - Bounded structured diagnostics on `SandboxIsolationError`: phase, container, exit code, Docker State, attestation and exit-report status, cleanup result.
+  - The failed check and a PID 1 stderr excerpt, for attestation failures only.
+  - Rendering keeps `phase` first under truncation, which fixed a sort-order bug the new test caught.
+- **Stress (`scripts/stress_sandbox.py`, `make stress`):** about 1,050 runs, idle and under 6 CPU burners. 0 attestation failures, 0 invariant violations, 0 leftover containers. Injected start, kill, inspect and external-kill failures all fail closed with diagnostics.
+- **Status:** unresolved; no defect reproduced.
+- **Checks:** `make ci` 488 passed; security suites 302/0/0; demo succeeded.
+
+## Final release audit (2026-11-08)
+- **Baseline at `fe76502`:** `make ci` 488 passed, 0 skipped; security suites 302/0/0; demo succeeded. Environment: kernel 6.18.44, 2 CPUs, Docker 29.9.2, cgroup v1, overlayfs, runc.
+- **P1 fixed: `docker rm` failures.** A non-zero exit was ignored on success, an `rm` error could replace the original exception, and the reaper counted failed removals.
+  - `_remove()` now reports `removed`, `removed (already absent)` or `failed: ...` and never raises.
+  - `RunOutcome.cleanup` and the tool resources carry the result; errors keep their original type, with the cleanup result in diagnostics or an exception note.
+  - The reaper counts only real removals.
+  - 5 regression tests, all failing first.
+- **P2 documented:** the per-run nonce appears in attestation-failure diagnostics. It is not exploitable.
+- **`docs/GUARANTEES.md`:** guarantee → enforcing code → regression tests, checked by `tests/test_guarantees_doc.py`.
+- **Evaluation results reproduce exactly** (scripted and adversarial mock, per run).
+- **Checks:** `make ci` 495 passed (390 / 105); security suites 302/0/0.

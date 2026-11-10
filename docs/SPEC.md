@@ -124,7 +124,36 @@ modifications of existing, non-protected regular files are allowed), and
 Sandbox run statuses (in `run_tests` results): `completed`, `timeout` (host
 timeout or in-container watchdog), `oom_killed` (Docker flag, or SIGKILL plus
 a cgroup `oom_kill` increase), `killed` (SIGKILL without OOM evidence), and
-`output_limit` (total output budget reached; PID 1 cut the output and killed the workload).
+`output_limit` (total output budget reached; PID 1 cut the output and killed the workload),
+and `cancelled` (the caller's cancel event was set while the container ran). A run
+whose exit report is missing or inconsistent raises `SandboxIsolationError` (task
+status `sandbox_error`) unless the host stopped it itself (timeout, cancellation,
+output backstop) or Docker reports an OOM kill.
+
+If cancellation or the caller's deadline is already due, the container is not
+started. This is checked before `docker create` and again immediately before
+`docker start`. The outcome is `cancelled` or `timeout` with `started: false`, and
+there is no output, attestation or exit report.
+
+Terminal-state precedence for a started run, first match wins:
+1. timeout (host timeout, caller deadline, or PID 1's deadline);
+2. cancelled (decided before the process exit was observed: an exit the host has
+   already seen is never re-labelled);
+3. output_limit;
+4. oom_killed;
+5. no valid exit report: `SandboxIsolationError`;
+6. killed;
+7. completed (only with a valid exit report that matches Docker's exit code).
+
+A run stopped by the host reports no exit code.
+
+Every outcome reports `cleanup`: `removed`, `removed (already absent)`, `not created`
+or `failed: <reason>`. A failed removal never changes the status: the container is
+left for `reap_stale()` and the failure is reported. On an error, cleanup is recorded
+in the error's diagnostics or as an exception note, and never replaces the error.
+
+A task request may restrict the tools (`allowed_tools`); any other tool call is a
+policy denial (`tool.not_allowed_for_task`), and `finish` is always allowed.
 
 ## 6. Default limits
 

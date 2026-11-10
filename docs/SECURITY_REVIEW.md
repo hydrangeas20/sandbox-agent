@@ -126,6 +126,228 @@ runs afterwards gave a median of 1,548 ms end to end and about 708 ms per
 `run_tests`, within run-to-run noise of the figures below. PID 1 is a larger piece of
 trusted code than before.
 
+### SR-16: the workload could signal the trusted PID 1
+
+**Found** in a probe in which the workload sent each signal to PID 1 and then
+printed a marker.
+
+- **SIGINT:** PID 1 raised `KeyboardInterrupt` (Python's default handler) and exited.
+  The watchdog, output relay and exit report went with it, and the host reported
+  `completed` with exit code 130.
+- **SIGALRM:** fired PID 1's deadline handler after 54 ms. The run was reported as a
+  `timeout` that never happened.
+- **SIGTERM, SIGHUP, SIGUSR1, SIGQUIT and SIGPIPE** were already dropped by the
+  kernel, because PID 1 had no handler for them.
+
+In both confirmed cases the workload died with PID 1, so containment held. The
+impact is on **result integrity**: the trusted supervisor could be disabled or a
+status forged.
+
+**Root cause.** The kernel only delivers a signal sent from inside a PID namespace
+to the namespace's init if init has installed a handler for it. Python installs one
+for SIGINT, and the entrypoint installed one for SIGALRM to implement the deadline.
+
+**Fix.**
+- `entry.py` resets every Python-level handler to `SIG_DFL` before doing anything
+  else. It uses `SIG_DFL` rather than `SIG_IGN` so the workload's inherited signal
+  dispositions are unchanged.
+- The deadline is checked by polling, every 50 ms or less, in the supervision loop.
+- On the host, `classify_outcome()` fails closed: if the exit report is missing or
+  inconsistent and the host did not stop the run itself (timeout, cancellation,
+  output backstop) and Docker reports no OOM kill, the run raises
+  `SandboxIsolationError` instead of being reported as `completed`.
+
+**Tests.**
+- `test_sr16_workload_cannot_signal_pid1` covers the 7 signals; SIGINT and SIGALRM
+  failed before the fix.
+- `test_sr16_deadline_still_enforced_without_sigalrm`.
+- `test_sr16_missing_exit_report_fails_closed`, plus the host-initiated cases.
+
+**Residual risk.** A bug in `entry.py` itself would still end the run without a
+report. The host now treats that as an untrusted result rather than a pass.
+
+### Cancellation and deadlines did not reach a running container
+
+**Found.** The controller checked its cancel flag and wall-clock budget only
+between iterations, so a running test command ran to the sandbox timeout (30 s).
+Reproduced on `main`:
+- cancelling a task during a hanging test took 30.3 s;
+- a 4 s `max_wall_clock_s` budget was overrun to 30.3 s.
+
+**Fix.** The controller passes a `RunControl` (cancel event plus deadline) through
+the tool layer to `DockerSandbox`, which waits in 100 ms slices. Cancellation stops
+the container (new status `cancelled`). A deadline earlier than the timeout stops it
+as a `timeout`, and the agent then ends with `budget_exhausted`.
+
+**Tests.** `tests/test_reliability_docker.py` covers sandbox- and task-level
+cancellation, cancel before start, caller deadline, wall-clock budget, and four
+concurrent runs that see only their own workspace.
+
+### Review of PR #6: pre-start cancellation and terminal-state attribution
+
+Two hypotheses from source review were tested with regression tests written first.
+These tests failed against `a6fe879`.
+
+**SA-01, confirmed: a pre-cancelled run executed untrusted code.**
+- Cancellation was only checked in `_wait()`, after `docker start --attach`.
+- At normal speed, with cancel set before the call, the workload printed its marker
+  in 12 of 20 runs. With `docker kill` slowed to 1 s (a loaded daemon), it did so in
+  5 of 5.
+- Fix: `RunControl.due()` is checked before `docker create` and again immediately
+  before `docker start`. A due stop returns a not-started outcome (`started: false`,
+  no output, attestation or exit report). A created container is still removed.
+- After the fix: 0 of 20 and 0 of 5 runs executed the workload.
+- Remaining window: a cancel that arrives after the final check but before the
+  daemon runs PID 1 counts as cancellation *during* execution (`started: true`).
+
+**SA-01b, confirmed: cancellation before attestation crashed.**
+- A cancel that landed before PID 1's attestation arrived built a `RunOutcome` with
+  `attestation=None`. The model rejected that with a pydantic `ValidationError`,
+  which is not a sandbox error. This happened in 8 of 20 pre-cancelled runs, and in
+  the near-simultaneous exit/cancel tests.
+- Fix: `attestation` is optional. Only a cancelled run may lack it; timeouts and
+  completions still fail closed.
+
+**SA-02, confirmed: an exit was re-labelled as a stop.**
+- `_wait()` checked cancellation and the deadline before looking at the process, so
+  an exit that had already happened was reported as `cancelled` or `timeout`.
+- Fix: each wait slice checks `proc.poll()` first.
+- The precedence is documented in `classify_outcome()` and in `SPEC.md` §5. Success
+  still requires a valid exit report that matches Docker's exit code.
+- Deterministic unit tests (`tests/test_lifecycle_review.py`) cover exit-before-cancel,
+  exit-before-deadline, exit and cancel in the same slice, and the classification
+  table. Docker tests race a fast exit against cancels at 0–500 ms.
+
+**Cleanup, confirmed: a failed stop left the attach CLI running.**
+- If `docker kill` failed (for example, a daemon timeout), the exception left
+  `docker start --attach` running and unreaped.
+- Fix: the CLI process is now killed and waited for on any exception. `run()` still
+  removes the container in its `finally`.
+
+**Disproven, kept as boundary tests:**
+- an inspect failure after a run fails closed and cleans up;
+- an unexpected exception while parsing still removes the container;
+- with `--init` (tini as PID 1), the runtime attestation refuses the run (PID 1
+  assumption enforced at run time);
+- a cancel after completion leaves the run `completed`.
+
+**Unresolved observation.** In the first of 4 full `make ci` runs after the fix,
+`test_binary_and_unterminated_output` failed with `runtime attestation failed`. That
+is a fail-closed refusal, not a false success. It did not reproduce in the 3 later
+full runs, in 2 Docker-only suite runs, or in 80 targeted runs, idle and under CPU
+load. The failure message was not captured, so the cause is not established. See
+SA-03 below: the cgroup errors suggested at the time do not line up with the failing
+run.
+
+### SA-03: intermittent "runtime attestation failed" (unresolved)
+
+**What the message proves.**
+- `runtime attestation failed` has a single source: PID 1's own first stderr line,
+  `sandbox-agent:attest-failed <nonce> {problems}`. The only other form is the bare
+  `... missing nonce`.
+- So the entrypoint ran and one of its in-container isolation checks failed.
+- That rules out these categories, which produce "attestation missing", a different
+  marker, or a different error:
+  - execution never started;
+  - the entrypoint crashed;
+  - a malformed or truncated attestation;
+  - a controller parsing race;
+  - a container start failure.
+- Which check failed (PID, UID/GID, seccomp mode or canary, capabilities, network
+  interfaces, mount flags, nonce) was not captured. Each one reads a fixed property
+  of the container, and none has an evident timing dependence.
+
+**The cgroup hypothesis is not supported.**
+- The daemon log's two bursts of cgroup v1 `epoll wait` errors (21:09:25 and
+  21:10:46) fall during and just after a later, *passing* full run (about
+  21:07–21:10).
+- The failing run was about 20:53–20:57. In that window the daemon logged only entries
+  that recur through passing runs too: BuildKit session healthchecks from image
+  builds, and containerd channel resets.
+- Test order was checked as well. The failing test ran fourth after the `--init`
+  test, and no state is carried between them.
+
+**Diagnostics added (the attestation requirement is unchanged).**
+- `SandboxIsolationError` now carries bounded, structured diagnostics:
+  - phase (`attestation`, `exit_evidence`, `post_run_inspect`);
+  - container name and short id, exit code;
+  - Docker `State` (Status, Running, ExitCode, Error, OOMKilled, timestamps);
+  - attestation and exit-report status, host stop, byte counts;
+  - whether cleanup removed the container.
+- Attestation failures also include the failed check and a 1 KiB stderr excerpt.
+  This is entrypoint output only, because PID 1 exits before forking the workload.
+  Failures after the workload ran never include its output.
+- Rendering is capped at 2000 characters, with `phase` first so truncation cannot
+  hide it.
+- A recurrence will now name the failing check.
+
+**Stress, bounded.** `scripts/stress_sandbox.py`, also `make stress`. Environment:
+kernel 6.18.44, 2 CPUs, Docker 29.9.2, cgroup v1 (cgroupfs), overlayfs, runc.
+
+| Run | Completed | Cancelled (not started / during run) | External kill of PID 1 | Unexpected | Leftovers |
+|---|---|---|---|---|---|
+| 100 per scenario, idle | 400 | 25 / 75 | 20 refused (`exit_evidence`) | 0 | 0 |
+| 100 per scenario, 6 CPU burners | 400 | 27 / 73 | 18 `exit_evidence` + 2 `attestation(missing)` | 0 | 0 |
+| External kill only, 250 runs (50 kills), 6 burners | – | – | 49 `exit_evidence` + 1 `attestation(missing)` | 0 | 0 |
+
+The 400 completions cover rapid exits, binary with unterminated output,
+unterminated stdout, and 4-way concurrency. The cancellations land at 0.05 to 0.6 s.
+Every run met the invariants: no completion without attestation and exit report, no
+not-started run with output, and no success after PID 1 was killed. Of about 1,050
+stress runs, **none** produced `runtime attestation failed`. Kills that landed
+before PID 1 attested produced `attestation missing`, as expected. Injected failures
+(a refused `docker start`, a failed `docker kill`, a failed post-run inspect, an
+external SIGKILL) all fail closed with diagnostics and cleanup.
+
+**Status: unresolved.** The failure did not reproduce, and no defect was found. When
+it happened, the system handled it safely: the run was refused and never reported as
+a result. The new diagnostics will identify the failing check if it recurs.
+
+### Final release audit (PR #6)
+
+The whole path was audited, from model output through tool gate, workspace,
+container configuration, PID 1 and host lifecycle, to teardown. Each guarantee is
+mapped to its enforcing code and its regression tests in [`GUARANTEES.md`](GUARANTEES.md);
+`tests/test_guarantees_doc.py` keeps that map honest.
+
+**P1, confirmed and fixed: a failed `docker rm` was ignored, or masked the original
+error.** All three cases below were written as failing tests first; all pass after
+the fix.
+
+- **Ignored.** With no error pending, a non-zero `docker rm -f` was ignored: the run
+  returned its result, nothing reported the failure, and the container stayed until
+  the reaper's deadline.
+- **Masked.** If the original failure was not a `SandboxIsolationError` (for example a
+  failed `docker kill`, or an unexpected exception), an `rm` that raised replaced it.
+  The execution failure was hidden.
+- **Overcounted.** `reap_stale()` ignored its own `rm` exit status and reported every
+  stale container as reaped.
+
+Fix: `_remove()` never raises and returns `removed`, `removed (already absent)` (the
+daemon says the container is gone) or `failed: <reason>`.
+- A successful run keeps its verified status and reports the failure in
+  `RunOutcome.cleanup`, which the tool layer also exposes.
+- An isolation error records it in its diagnostics.
+- Any other exception keeps propagating, with the cleanup failure added as an
+  exception note.
+- The reaper removes containers one at a time and counts only real removals.
+- A container whose removal failed is left for `reap_stale()`.
+
+**P2, documented and not fixed: the run nonce appears in attestation-failure
+diagnostics.** PID 1's `attest-failed` line carries the per-run nonce, so the 1 KiB
+stderr excerpt in the diagnostics includes it, and that text can reach a
+model-visible tool error and the trace. The nonce only authenticates markers for that
+one run. By the time the error is raised the container has exited, and every run
+gets a fresh nonce, so it is not exploitable. Masking it in the excerpt is a small
+follow-up.
+
+**Re-verified.** SA-01, SA-01b, SA-02, the attach-CLI cleanup and SA-03's fail-closed
+handling were all re-checked: their tests pass, and the committed evaluation results
+reproduce exactly (scripted 10/10, all clean; adversarial mock 7/10, 0 clean, 20
+attempted and 0 executed violations, with identical per-run outcomes).
+
+No P0 or other P1 findings.
+
 ## Controller and agent-loop verification
 
 | # | Property | Result | Evidence |

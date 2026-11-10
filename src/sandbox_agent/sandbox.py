@@ -29,6 +29,7 @@ Flow for one run (fail closed at every step):
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import re
@@ -38,6 +39,7 @@ import subprocess
 import threading
 import time
 import uuid
+from dataclasses import dataclass
 from pathlib import Path
 from typing import IO, Any, Literal
 
@@ -64,7 +66,81 @@ _NONCE_RE = re.compile(r"^[0-9a-f]{32}$")
 #: Security options a created container may carry, besides the pinned seccomp profile.
 _ALLOWED_SECURITY_OPTS = frozenset({"no-new-privileges", "no-new-privileges:true"})
 
-Status = Literal["completed", "timeout", "oom_killed", "killed", "output_limit"]
+Status = Literal["completed", "timeout", "oom_killed", "killed", "output_limit", "cancelled"]
+_WAIT_SLICE_S = 0.1
+
+
+@dataclass(frozen=True)
+class RunControl:
+    """Caller-side controls for one run, checked while the container runs.
+
+    ``cancel`` stops the run as soon as it is set (status ``cancelled``). ``deadline``
+    is a ``time.monotonic()`` instant (for example the agent's wall-clock budget); the
+    run is stopped there if that is earlier than the configured timeout (``timeout``).
+    """
+
+    cancel: threading.Event | None = None
+    deadline: float | None = None
+
+    def due(self) -> Status | None:
+        """The stop that is already due, if any (cancellation before deadline)."""
+        if self.cancel is not None and self.cancel.is_set():
+            return "cancelled"
+        if self.deadline is not None and time.monotonic() >= self.deadline:
+            return "timeout"
+        return None
+
+
+def classify_outcome(
+    *,
+    timed_out: bool,
+    cancelled: bool,
+    budget_tripped: bool,
+    docker_oom: bool,
+    exit_code: int | None,
+    report: dict[str, Any] | None,
+) -> Status:
+    """Classify a started run. Raises if the result cannot be trusted.
+
+    Precedence, first match wins (a run that was never started is ``not_started``,
+    decided before this function):
+
+    1. ``timeout`` - the host's timeout or caller deadline stopped the run, or PID 1's
+       own deadline fired (``report.deadline``);
+    2. ``cancelled`` - the host decided to cancel *before* it observed the process
+       exit (``_wait`` checks for an exit first, so a run that already finished is
+       never re-labelled); the run is then killed and its exit code is not reported;
+    3. ``output_limit`` - PID 1 cut the output at the budget, or the host backstop
+       fired;
+    4. ``oom_killed`` - Docker's OOM flag, or SIGKILL with a cgroup ``oom_kill``
+       increase in PID 1's report;
+    5. no valid exit report - ``SandboxIsolationError`` (fail closed);
+    6. ``killed`` - SIGKILL without OOM evidence;
+    7. ``completed`` - only with a valid exit report that matches Docker's exit code.
+
+    Host-initiated stops (timeout, cancellation, the output backstop) and a Docker
+    OOM kill may legitimately prevent PID 1 from writing its exit report. In every
+    other case a missing (or inconsistent) report means the trusted entrypoint did not
+    finish, so the outcome is refused rather than reported as ``completed``.
+    """
+    if timed_out or (report is not None and report.get("deadline")):
+        return "timeout"
+    if cancelled:
+        return "cancelled"
+    if budget_tripped or (report is not None and report.get("output_limit")):
+        return "output_limit"
+    if docker_oom or (
+        report is not None and report.get("signal") == 9 and (report.get("oom_kills") or 0) > 0
+    ):
+        return "oom_killed"
+    if report is None:
+        raise SandboxIsolationError(
+            "trusted entrypoint ended without a valid exit report "
+            f"(container exit code {exit_code}); the run result is not trusted"
+        )
+    if exit_code == 137:
+        return "killed"
+    return "completed"
 
 
 def load_seccomp_profile() -> dict[str, Any]:
@@ -119,7 +195,13 @@ class RunOutcome(BaseModel):
         workload die by SIGKILL while the cgroup's ``oom_kill`` counter increased;
       * ``killed`` - SIGKILL (exit 137) with no OOM evidence and not sent by the runner;
       * ``output_limit`` - the total output budget was reached: PID 1 cut the output at
-        the budget and killed the workload (or, as a backstop, the runner killed it).
+        the budget and killed the workload (or, as a backstop, the runner killed it);
+      * ``cancelled`` - the caller cancelled the run.
+
+    ``started`` is False when cancellation or the caller's deadline was already due
+    before the container was started: no untrusted instruction executed, and there is
+    no output, attestation or exit report. ``attestation`` is None only for a run that
+    was not started or was cancelled before PID 1's attestation arrived.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -136,8 +218,31 @@ class RunOutcome(BaseModel):
     stderr_bytes_total: int
     duration_ms: int
     container: str
-    attestation: dict[str, Any] = Field(default_factory=dict)
+    attestation: dict[str, Any] | None = Field(default_factory=dict)
     exit_report: dict[str, Any] | None = None
+    started: bool = True
+    # Result of `docker rm -f` for this run: "removed", "removed (already absent)",
+    # "not created" or "failed: <reason>". A failed removal never changes the status:
+    # the container is left for reap_stale(), and the failure is reported, not hidden.
+    cleanup: str = "removed"
+
+    @classmethod
+    def not_started(cls, status: Status, *, container: str) -> RunOutcome:
+        return cls(
+            status=status,
+            exit_code=None,
+            stdout="",
+            stderr="",
+            stdout_truncated=False,
+            stderr_truncated=False,
+            stdout_bytes_total=0,
+            stderr_bytes_total=0,
+            duration_ms=0,
+            container=container,
+            attestation=None,
+            started=False,
+            cleanup="not created",
+        )
 
 
 class _OutputBudget:
@@ -290,9 +395,8 @@ class DockerSandbox:
             expired = not deadline.strip().isdigit() or int(deadline) < now
             if expired or owner_alive(owner) is False:
                 stale.append(cid)
-        if stale:
-            self._cli("rm", "-f", *stale)
-        return len(stale)
+        # One container per call, so the count reflects what was actually removed.
+        return sum(1 for cid in stale if not self._remove(cid).startswith("failed"))
 
     # ------------------------------------------------------------------ arguments
 
@@ -476,8 +580,14 @@ class DockerSandbox:
 
     # ------------------------------------------------------------------ run
 
-    def run(self, workspace_dir: Path, command: ContainerCommand) -> RunOutcome:
+    def run(
+        self, workspace_dir: Path, command: ContainerCommand, control: RunControl | None = None
+    ) -> RunOutcome:
         name = f"sandbox-agent-{uuid.uuid4().hex[:12]}"
+        control = control or RunControl()
+        due = control.due()
+        if due is not None:  # nothing is created, let alone started
+            return RunOutcome.not_started(due, container=name)
         nonce = secrets.token_hex(16)
         create_args = self.build_create_args(workspace_dir, command, name, nonce=nonce)
         created = self._cli(*create_args)
@@ -491,9 +601,33 @@ class DockerSandbox:
                 nonce=nonce,
                 expected_argv=self.wrapped_argv(command),
             )
-            return self._start(container_id, name, nonce)
-        finally:
-            self._cli("rm", "-f", container_id)
+            outcome = self._start(container_id, name, nonce, control)
+        except BaseException as exc:
+            # Cleanup is reported on the original error and never replaces it.
+            cleanup = self._remove(container_id)
+            if isinstance(exc, SandboxIsolationError) and exc.diagnostics is not None:
+                exc.diagnostics["cleanup"] = cleanup
+            elif cleanup.startswith("failed"):
+                exc.add_note(f"sandbox cleanup failed for {container_id[:12]}: {cleanup}")
+            raise
+        return outcome.model_copy(update={"cleanup": self._remove(container_id)})
+
+    def _remove(self, container_id: str) -> str:
+        """`docker rm -f` and report what happened; never raises.
+
+        A non-zero exit is a failure unless the daemon says the container no longer
+        exists. A failed removal leaves the container for ``reap_stale``.
+        """
+        try:
+            res = self._cli("rm", "-f", container_id)
+        except SandboxUnavailableError as exc:
+            return f"failed: {exc}"[:300]
+        if res.returncode == 0:
+            return "removed"
+        error = res.stderr.strip()
+        if "No such container" in error:
+            return "removed (already absent)"
+        return f"failed: {error[:200] or f'docker rm exited {res.returncode}'}"
 
     def _inspect(self, container_id: str) -> dict[str, Any]:
         res = self._cli("inspect", container_id)
@@ -505,8 +639,7 @@ class DockerSandbox:
         result: dict[str, Any] = data[0]
         return result
 
-    def _start(self, container_id: str, name: str, nonce: str) -> RunOutcome:  # noqa: PLR0915
-        limit = self.config.max_output_bytes
+    def _start(self, container_id: str, name: str, nonce: str, control: RunControl) -> RunOutcome:
         started = time.monotonic()
         killed_by_budget = threading.Event()
 
@@ -521,6 +654,9 @@ class DockerSandbox:
         budget = _OutputBudget(
             self.config.max_total_output_bytes + _MARKER_ALLOWANCE_BYTES, kill_for_output
         )
+        due = control.due()
+        if due is not None:  # immediately before start: the container never runs
+            return RunOutcome.not_started(due, container=name)
         proc = subprocess.Popen(
             [self._docker, "start", "--attach", container_id],
             stdout=subprocess.PIPE,
@@ -528,17 +664,42 @@ class DockerSandbox:
             stdin=subprocess.DEVNULL,
             env=_docker_cli_env(),
         )
+        try:
+            return self._supervise(
+                proc,
+                container_id=container_id,
+                name=name,
+                nonce=nonce,
+                control=control,
+                started=started,
+                budget=budget,
+                killed_by_budget=killed_by_budget,
+            )
+        except BaseException:
+            _reap(proc)  # never leave `docker start --attach` running or unreaped
+            raise
+
+    def _supervise(
+        self,
+        proc: subprocess.Popen[bytes],
+        *,
+        container_id: str,
+        name: str,
+        nonce: str,
+        control: RunControl,
+        started: float,
+        budget: _OutputBudget,
+        killed_by_budget: threading.Event,
+    ) -> RunOutcome:
+        limit = self.config.max_output_bytes
         assert proc.stdout is not None  # noqa: S101 - guaranteed by PIPE
         assert proc.stderr is not None  # noqa: S101
         out = _BoundedReader(proc.stdout, limit, budget)
         err = _BoundedReader(proc.stderr, limit, budget)
         out.start()
         err.start()
-        timed_out = False
-        try:
-            proc.wait(timeout=self.config.timeout_s)
-        except subprocess.TimeoutExpired:
-            timed_out = True
+        timed_out, cancelled = self._wait(proc, started, control)
+        if timed_out or cancelled:
             self._cli("kill", container_id)
             try:
                 proc.wait(timeout=10)
@@ -548,38 +709,80 @@ class DockerSandbox:
         out.join(timeout=5)
         err.join(timeout=5)
         duration_ms = int((time.monotonic() - started) * 1000)
-        state = self._inspect(container_id).get("State") or {}
+        host_stop = "timeout" if timed_out else ("cancelled" if cancelled else None)
+        base: dict[str, Any] = {
+            "container": name,
+            "container_id": container_id[:12],
+            "host_stop": host_stop,
+            "elapsed_ms": duration_ms,
+            "stdout_bytes": out.total,
+            "stderr_bytes": err.total,
+        }
+        try:
+            state = self._inspect(container_id).get("State") or {}
+        except SandboxIsolationError as exc:
+            raise SandboxIsolationError(
+                exc.message, diagnostics={"phase": "post_run_inspect", **base}
+            ) from exc
         exit_code = state.get("ExitCode")
+        base["exit_code"] = exit_code
+        base["state"] = {k: _bounded(state.get(k)) for k in _STATE_KEYS}
 
         stderr_head, attestation, failed = _take_marker(err.text, "attest", nonce, first=True)
         if failed is not None:
-            raise SandboxIsolationError(f"runtime attestation failed: {failed}")
-        if attestation is None:
             raise SandboxIsolationError(
-                "runtime attestation missing: the trusted entrypoint did not confirm isolation"
+                f"runtime attestation failed: {failed}",
+                diagnostics={
+                    "phase": "attestation",
+                    "attestation": {"status": "failed", "detail": _bounded(failed, 600)},
+                    "stderr_head": err.text[:1024],  # PID 1 output: it exits before forking
+                    **base,
+                },
+            )
+        if attestation is None and not cancelled:
+            # Only a run the caller cancelled may lack the attestation (the kill can land
+            # before PID 1's first line arrives). It is reported as `cancelled` with
+            # attestation None, and nothing from it counts as a result.
+            raise SandboxIsolationError(
+                "runtime attestation missing: the trusted entrypoint did not confirm isolation",
+                diagnostics={
+                    "phase": "attestation",
+                    "attestation": {"status": "missing"},
+                    "stderr_head": err.text[:1024],  # nothing ran after PID 1 without it
+                    **base,
+                },
             )
         stderr_tail, report, _ = _take_marker(err.tail, "exit", nonce, first=False)
         if err.total <= limit:
             stderr_head, _, _ = _take_marker(stderr_head, "exit", nonce, first=False)
+        report_state = "valid" if report is not None else "missing"
         if report is not None and _report_exit_status(report) != exit_code:
             report = None  # inconsistent with Docker's view: ignore rather than trust it
+            report_state = "inconsistent"
 
-        status: Status
-        if timed_out or (report is not None and report.get("deadline")):
-            status = "timeout"
-        elif killed_by_budget.is_set() or (report is not None and report.get("output_limit")):
-            status = "output_limit"
-        elif bool(state.get("OOMKilled")) or (
-            report is not None and report.get("signal") == 9 and (report.get("oom_kills") or 0) > 0
-        ):
-            status = "oom_killed"
-        elif exit_code == 137:
-            status = "killed"
-        else:
-            status = "completed"
+        try:
+            status = classify_outcome(
+                timed_out=timed_out,
+                cancelled=cancelled,
+                budget_tripped=killed_by_budget.is_set(),
+                docker_oom=bool(state.get("OOMKilled")),
+                exit_code=exit_code,
+                report=report,
+            )
+        except SandboxIsolationError as exc:
+            raise SandboxIsolationError(
+                exc.message,
+                diagnostics={
+                    "phase": "exit_evidence",
+                    "attestation": {"status": "present" if attestation else "missing"},
+                    "exit_report": report_state,
+                    **base,
+                },
+            ) from exc
+        stopped = timed_out or cancelled
         return RunOutcome(
             status=status,
-            exit_code=None if timed_out else (int(exit_code) if exit_code is not None else None),
+            exit_code=None if stopped else (int(exit_code) if exit_code is not None else None),
             stdout=out.text,
             stderr=stderr_head,
             stdout_tail=out.tail,
@@ -593,6 +796,52 @@ class DockerSandbox:
             attestation=attestation,
             exit_report=report,
         )
+
+    def _wait(
+        self, proc: subprocess.Popen[bytes], started: float, control: RunControl
+    ) -> tuple[bool, bool]:
+        """Wait for the attached container; return (timed_out, cancelled).
+
+        Polls in short slices so a cancellation or an earlier caller deadline stops the
+        run promptly instead of after the full configured timeout. Each slice first
+        checks whether the process has already exited: an exit the host has observed
+        is never re-labelled as a cancellation or timeout.
+        """
+        end = started + self.config.timeout_s
+        if control.deadline is not None:
+            end = min(end, control.deadline)
+        while True:
+            if proc.poll() is not None:
+                return False, False
+            if control.cancel is not None and control.cancel.is_set():
+                return False, True
+            remaining = end - time.monotonic()
+            if remaining <= 0:
+                return True, False
+            try:
+                proc.wait(timeout=min(_WAIT_SLICE_S, remaining))
+            except subprocess.TimeoutExpired:
+                continue
+            return False, False
+
+
+_STATE_KEYS = ("Status", "Running", "ExitCode", "Error", "OOMKilled", "StartedAt", "FinishedAt")
+
+
+def _bounded(value: Any, limit: int = 300) -> Any:
+    """Diagnostics values: keep scalars, cap strings and anything rendered as text."""
+    if value is None or isinstance(value, (bool, int, float)):
+        return value
+    text = value if isinstance(value, str) else json.dumps(value, default=str)
+    return text if len(text) <= limit else text[:limit] + "..."
+
+
+def _reap(proc: subprocess.Popen[bytes]) -> None:
+    """Kill (if still running) and wait for a docker CLI process."""
+    if proc.poll() is None:
+        proc.kill()
+    with contextlib.suppress(subprocess.TimeoutExpired):  # SIGKILL was sent
+        proc.wait(timeout=10)
 
 
 def _take_marker(

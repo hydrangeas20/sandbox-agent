@@ -29,6 +29,12 @@ cut at the budget, every workload process is killed at once, and anything still
 buffered is discarded. The bytes that leave the container are therefore exactly
 bounded and do not depend on how quickly the host can react.
 
+**Signals.** PID 1 installs no signal handlers: Python's default SIGINT handler is
+reset and the deadline is checked by polling, not with SIGALRM. The kernel drops
+signals that processes inside the namespace send to an init without a handler, so the
+workload cannot interrupt the watchdog, the output relay or the exit report, and
+cannot forge a deadline.
+
 Both marker lines carry a per-run nonce that untrusted code cannot read, so they
 cannot be forged. Standard library only; runs on a shell-less base image.
 """
@@ -250,14 +256,36 @@ def spawn(command: list[str], child_env: dict[str, str], max_output: int) -> tup
     return pid, Relay({out_r: 1, err_r: 2}, max_output)
 
 
-def supervise(pid: int, relay: Relay) -> int:
+def drop_signal_handlers() -> None:
+    """Leave PID 1 with no signal handlers, so namespace-internal signals cannot reach it.
+
+    For a PID namespace's init, the kernel discards signals sent from inside the
+    namespace unless init has installed a handler. Python installs one for SIGINT
+    (KeyboardInterrupt); reset it, and any other Python-level handler, to SIG_DFL.
+    SIG_DFL (rather than SIG_IGN) keeps the workload's inherited dispositions unchanged.
+    """
+    for sig in signal.valid_signals():
+        if sig in (signal.SIGKILL, signal.SIGSTOP):
+            continue
+        with contextlib.suppress(OSError, ValueError):
+            if callable(signal.getsignal(sig)):
+                signal.signal(sig, signal.SIG_DFL)
+
+
+def supervise(pid: int, relay: Relay, deadline_at: float) -> tuple[int, bool]:
     """Relay output until the command has exited and every write end is closed.
 
     Once the command exits, stragglers (daemonised grandchildren) are killed, which
-    closes the pipes they inherited. Returns the command's wait status.
+    closes the pipes they inherited. The wall-clock deadline is checked on every poll
+    (at most ``POLL_S`` apart). Returns the command's wait status and whether the
+    deadline fired.
     """
     wait_status: int | None = None
+    deadline_hit = False
     while wait_status is None or relay.sources:
+        if not deadline_hit and time.monotonic() >= deadline_at:
+            deadline_hit = True
+            kill_all()
         relay.poll()
         while True:
             try:
@@ -269,11 +297,12 @@ def supervise(pid: int, relay: Relay) -> int:
             if reaped == pid:
                 wait_status = status
                 kill_all()
-    return wait_status
+    return wait_status, deadline_hit
 
 
 def main() -> int:
     started = time.monotonic()
+    drop_signal_handlers()  # first: before anything else can run in the container
     deadline, uid, env_keys, max_output, command = parse_args(sys.argv[1:])
     libc = ctypes.CDLL(None, use_errno=True)
     libc.prctl(PR_SET_DUMPABLE, 0, 0, 0, 0)
@@ -291,16 +320,7 @@ def main() -> int:
     child_env = {k: os.environ[k] for k in env_keys if k in os.environ and k != NONCE_VAR}
     oom_before = oom_kills()
     pid, relay = spawn(command, child_env, max_output)
-    state = {"deadline": False}
-
-    def on_deadline(_sig: int, _frame: object) -> None:
-        state["deadline"] = True
-        kill_all()
-
-    signal.signal(signal.SIGALRM, on_deadline)
-    signal.setitimer(signal.ITIMER_REAL, deadline)
-    wait_status = supervise(pid, relay)
-    signal.setitimer(signal.ITIMER_REAL, 0)
+    wait_status, deadline_hit = supervise(pid, relay, time.monotonic() + deadline)
     kill_all()
     while True:
         try:
@@ -314,7 +334,7 @@ def main() -> int:
     report = {
         "exit_code": exit_code if exit_code >= 0 else None,
         "signal": term_signal,
-        "deadline": state["deadline"],
+        "deadline": deadline_hit,
         "oom_kills": (oom_after - oom_before)
         if oom_after is not None and oom_before is not None
         else None,
@@ -324,7 +344,7 @@ def main() -> int:
         "duration_ms": int((time.monotonic() - started) * 1000),
     }
     emit("exit", nonce, report, fresh_line=True)
-    if state["deadline"]:
+    if deadline_hit:
         return EXIT_DEADLINE
     return 128 + term_signal if term_signal is not None else exit_code
 

@@ -6,6 +6,11 @@ them explicitly instead of catching a generic ``Exception``.
 
 from __future__ import annotations
 
+import json
+from typing import Any
+
+_DIAGNOSTICS_CHARS = 2000
+
 
 class SandboxAgentError(Exception):
     """Base class for all errors raised by this package."""
@@ -25,7 +30,29 @@ class SandboxUnavailableError(SandboxAgentError):
 
 
 class SandboxIsolationError(SandboxAgentError):
-    """A requested isolation control could not be applied or verified."""
+    """A requested isolation control could not be applied or verified.
+
+    ``diagnostics`` (optional) holds bounded, structured evidence for failures of a
+    started run: execution phase, container, exit status, Docker state, attestation
+    status and cleanup result. It is appended to the message and capped at
+    ``_DIAGNOSTICS_CHARS``. It carries a stderr excerpt only for attestation failures,
+    where PID 1 exits before forking the workload, so the excerpt is entrypoint output.
+    """
+
+    def __init__(self, message: str, *, diagnostics: dict[str, Any] | None = None) -> None:
+        super().__init__(message)
+        self.message = message
+        self.diagnostics = diagnostics
+
+    def __str__(self) -> str:
+        if not self.diagnostics:
+            return self.message
+        # `phase` first, so truncation never hides which step failed.
+        ordered = {"phase": self.diagnostics.get("phase"), **self.diagnostics}
+        text = json.dumps(ordered, default=str)
+        if len(text) > _DIAGNOSTICS_CHARS:
+            text = text[:_DIAGNOSTICS_CHARS] + "...(truncated)"
+        return f"{self.message} [diagnostics: {text}]"
 
 
 class WorkspaceError(SandboxAgentError):

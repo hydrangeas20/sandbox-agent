@@ -168,11 +168,12 @@ def cmd_eval(args: argparse.Namespace, settings: Settings) -> int:
         model=args.model,
         per_task_budget=ModelBudget(max_cost_usd=per_task),
         max_total_cost_usd=total,
+        repeats=args.repeats,
     )
     if ledger is not None:
         print(json.dumps(ledger.summary(), indent=2))
     print(format_markdown(summary))
-    return 0 if summary["passed"] == summary["tasks"] else 1
+    return 0 if summary["passed"] == summary["runs"] else 1
 
 
 def cmd_ledger(args: argparse.Namespace, settings: Settings) -> int:
@@ -240,7 +241,15 @@ def build_parser() -> argparse.ArgumentParser:
     demo.set_defaults(func=cmd_demo)
 
     ev = sub.add_parser("eval", help="run the evaluation suite (evals/tasks.json)")
-    ev.add_argument("--provider", choices=["scripted", "anthropic"], default="scripted")
+    ev.add_argument(
+        "--provider",
+        choices=["scripted", "mock-adversarial", "anthropic"],
+        default="scripted",
+        help="scripted / mock-adversarial validate the harness; only anthropic is a model",
+    )
+    ev.add_argument(
+        "--repeats", type=int, default=1, help="runs per task (1-10); results are per run"
+    )
     ev.add_argument("--model", default=None)
     ev.add_argument("--task", action="append", help="task id (repeatable); default: all")
     ev.add_argument("--max-cost-usd", type=float, default=None, help="per-task cost cap")

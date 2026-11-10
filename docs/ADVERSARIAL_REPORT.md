@@ -1,8 +1,8 @@
 # Adversarial Evaluation Report
 
-Generated 2026-10-26 20:49 UTC by `scripts/adversarial_report.py` from pytest JUnit output. Docker server 29.9.2. Skipped tests are listed as SKIPPED, never as passes.
+Generated 2026-11-09 02:31 UTC by `scripts/adversarial_report.py` from pytest JUnit output. Docker server 29.9.2. Skipped tests are listed as SKIPPED, never as passes.
 
-**Totals:** 289 pass, 0 fail, 0 skipped.
+**Totals:** 302 pass, 0 fail, 0 skipped.
 
 ## Adversarial scenarios (`tests/test_adversarial.py`)
 
@@ -122,6 +122,19 @@ Finding IDs refer to `docs/SECURITY_REVIEW.md`. Before/after evidence for each i
 | SR-13 | `test_sr13_oom_kill_is_attributed_with_cgroup_evidence` | PASS |
 | SR-13 | `test_sr13_unrelated_sigkill_is_not_called_oom` | PASS |
 | SR-14 | `test_sr14_reader_keeps_head_and_tail` | PASS |
+| SR-16 | `test_sr16_deadline_still_enforced_without_sigalrm` | PASS |
+| SR-16 | `test_sr16_host_initiated_stops_need_no_exit_report[flags0-timeout]` | PASS |
+| SR-16 | `test_sr16_host_initiated_stops_need_no_exit_report[flags1-cancelled]` | PASS |
+| SR-16 | `test_sr16_host_initiated_stops_need_no_exit_report[flags2-output_limit]` | PASS |
+| SR-16 | `test_sr16_host_initiated_stops_need_no_exit_report[flags3-oom_killed]` | PASS |
+| SR-16 | `test_sr16_missing_exit_report_fails_closed` | PASS |
+| SR-16 | `test_sr16_workload_cannot_signal_pid1[SIGALRM]` | PASS |
+| SR-16 | `test_sr16_workload_cannot_signal_pid1[SIGHUP]` | PASS |
+| SR-16 | `test_sr16_workload_cannot_signal_pid1[SIGINT]` | PASS |
+| SR-16 | `test_sr16_workload_cannot_signal_pid1[SIGPIPE]` | PASS |
+| SR-16 | `test_sr16_workload_cannot_signal_pid1[SIGQUIT]` | PASS |
+| SR-16 | `test_sr16_workload_cannot_signal_pid1[SIGTERM]` | PASS |
+| SR-16 | `test_sr16_workload_cannot_signal_pid1[SIGUSR1]` | PASS |
 
 ## Security-relevant suites
 
@@ -133,8 +146,8 @@ Finding IDs refer to `docs/SECURITY_REVIEW.md`. Before/after evidence for each i
 | `test_reliability` | 5 | 0 | 0 |
 | `test_sandbox_args` | 37 | 0 | 0 |
 | `test_sandbox_docker` | 11 | 0 | 0 |
-| `test_security_review` | 66 | 0 | 0 |
-| `test_security_review_docker` | 17 | 0 | 0 |
+| `test_security_review` | 71 | 0 | 0 |
+| `test_security_review_docker` | 25 | 0 | 0 |
 | `test_tools` | 31 | 0 | 0 |
 | `test_trace` | 12 | 0 | 0 |
 | `test_workspace` | 46 | 0 | 0 |

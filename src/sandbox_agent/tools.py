@@ -26,7 +26,7 @@ from sandbox_agent.config import PatchLimits
 from sandbox_agent.errors import PolicyViolation, SandboxAgentError
 from sandbox_agent.patch import Edit, apply_patch
 from sandbox_agent.policy import ALLOWED_COMMANDS, build_command
-from sandbox_agent.sandbox import ContainerCommand, RunOutcome
+from sandbox_agent.sandbox import ContainerCommand, RunControl, RunOutcome
 from sandbox_agent.workspace import Workspace
 
 ErrorKind = Literal["policy_denial", "invalid_arguments", "execution_error"]
@@ -76,7 +76,9 @@ class ToolResult(BaseModel):
 
 
 class CommandRunner(Protocol):
-    def run(self, workspace_dir: Path, command: ContainerCommand) -> RunOutcome: ...
+    def run(
+        self, workspace_dir: Path, command: ContainerCommand, control: RunControl | None = None
+    ) -> RunOutcome: ...
 
 
 @dataclass(frozen=True)
@@ -121,6 +123,12 @@ class ToolContext:
     runner: CommandRunner
     patch_limits: PatchLimits = field(default_factory=PatchLimits)
     tail_chars: int = 4000
+    # Set by the controller for the duration of a task: cancellation and its wall-clock
+    # deadline reach a running container, not only the next iteration.
+    control: RunControl = field(default_factory=RunControl)
+    # Per-task tool allowlist (None: all tools). Enforced here, in trusted code; `finish`
+    # is always allowed so a task can end.
+    allowed_tools: frozenset[str] | None = None
 
 
 class ToolExecutor:
@@ -129,9 +137,9 @@ class ToolExecutor:
     def __init__(self, ctx: ToolContext) -> None:
         self.ctx = ctx
 
-    def execute(self, name: str, raw_args: dict[str, Any]) -> ToolResult:
-        spec = TOOL_SPECS.get(name)
-        if spec is None:
+    def _gate(self, name: str) -> ToolResult | None:
+        """Tool-level policy, before any argument is parsed: known tool, task allowlist."""
+        if name not in TOOL_SPECS:
             return ToolResult(
                 tool=name,
                 ok=False,
@@ -139,6 +147,22 @@ class ToolExecutor:
                 denied_rule="tool.unknown",
                 error=f"unknown tool {name!r}; available: {sorted(TOOL_SPECS)}",
             )
+        allowed = self.ctx.allowed_tools
+        if allowed is not None and name != "finish" and name not in allowed:
+            return ToolResult(
+                tool=name,
+                ok=False,
+                error_kind="policy_denial",
+                denied_rule="tool.not_allowed_for_task",
+                error=f"tool {name!r} is not allowed for this task; allowed: {sorted(allowed)}",
+            )
+        return None
+
+    def execute(self, name: str, raw_args: dict[str, Any]) -> ToolResult:
+        denied = self._gate(name)
+        if denied is not None:
+            return denied
+        spec = TOOL_SPECS[name]
         try:
             args = spec.args_model.model_validate(raw_args)
         except ValidationError as exc:
@@ -220,7 +244,7 @@ class ToolExecutor:
 
     def _tool_run_tests(self, args: RunTestsArgs) -> dict[str, Any]:
         command = build_command(args.command, args.selector)
-        outcome = self.ctx.runner.run(self.ctx.workspace.path, command)
+        outcome = self.ctx.runner.run(self.ctx.workspace.path, command, self.ctx.control)
         stderr_tail = outcome.stderr_tail or outcome.stderr
         stdout_tail = outcome.stdout_tail or outcome.stdout
         # unittest prints its summary last, so parse the tail window (head as fallback).
@@ -246,6 +270,9 @@ class ToolExecutor:
                 "oom_killed": outcome.status == "oom_killed",
                 "killed": outcome.status == "killed",
                 "output_limited": outcome.status == "output_limit",
+                "cancelled": outcome.status == "cancelled",
+                "started": outcome.started,
+                "cleanup": outcome.cleanup,
                 "stdout_bytes": outcome.stdout_bytes_total,
                 "stderr_bytes": outcome.stderr_bytes_total,
                 "attested": bool(outcome.attestation),
