@@ -66,7 +66,7 @@ Concise per-milestone progress entries. Newest last.
 - `scripts/adversarial_report.py` / `make adversarial-report` regenerates `docs/ADVERSARIAL_REPORT.md` from JUnit XML (skips reported as SKIPPED). Current: 177 pass, 0 fail, 0 skipped across security suites. Full suite 249/249.
 - No test was weakened. Two test-data fixes during M8 (an AWS key-id sample one character short of the real format; a spoofing test that passed a reserved Python keyword) are recorded here for transparency.
 
-## M10 — Portfolio demonstration
+## M10 — Documentation and demonstration
 - Goal: a reviewer can understand, reproduce and judge the project from the README.
 - `README.md`: Mermaid architecture with trust boundaries, threat → mitigation → test table, exact setup (`make install`, `make image`, `preflight`, `make demo`), captured demo and injection-containment output, measured results, usage/API/commands, unverified real-provider instructions, layout, limitations. `docs/DECISIONS.md`: 11 trade-off records. MIT `LICENSE` added to match `pyproject.toml` (flagged for review).
 - Results report the concrete provider (`injection-following`) instead of the request's provider family.
