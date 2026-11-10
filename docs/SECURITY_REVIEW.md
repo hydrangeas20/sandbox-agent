@@ -375,6 +375,14 @@ Measured on the build host (2 vCPU, cgroup v1), 5 runs of `make demo`:
 After the fix, the ranges were 1,409–1,547 ms end to end and 637–706 ms per
 `run_tests`, and all 5 runs succeeded with the fixture unchanged.
 
+Re-measured on 2026-11-08, after the PID 1 output relay (SR-05 follow-up), SR-16 and the
+lifecycle fixes, on the same kind of host (2 CPUs, Docker 29.9.2, cgroup v1), over five
+`make demo` runs:
+- end to end: median 1,548 ms (1,474–1,643);
+- per `run_tests`: median 722 ms (626–760, 10 runs).
+
+All 5 runs succeeded. The figures are single-host measurements, not benchmarks.
+
 The extra work (attestation, scrubbed env, watchdog, one extra `inspect`, reaper
 `ps`) is within run-to-run noise. The full test suite takes ~85 s (was ~40 s,
 mostly the new Docker-backed termination tests).

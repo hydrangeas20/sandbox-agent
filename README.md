@@ -4,13 +4,15 @@
 
 ### Bounded Execution for Coding Agents
 
-**A coding agent whose actions, test execution and spend are contained by the controller, not by the model.**
+**A coding agent whose tool use, test execution and spend are contained and verified by a trusted controller, not by the model.**
 
-Python · FastAPI · Pydantic · Docker · seccomp · pytest · Ruff · mypy --strict
+Untrusted repository code runs only in a hardened Docker container that is checked before it starts and attested from inside before anything runs. A run counts as complete only with valid evidence from the container's trusted supervisor.
+
+Python 3.11+ · FastAPI · Pydantic · Docker · seccomp · pytest · Ruff · mypy --strict
 
 [![CI](https://github.com/hydrangeas20/sandbox-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/hydrangeas20/sandbox-agent/actions/workflows/ci.yml)
 
-[Start here](#start-here) · [Demonstration](#demonstration) · [Evidence](#engineering-evidence) · [Architecture](#architecture) · [Security model](#security-model) · [Quick start](#quick-start) · [Real-model evaluation](#real-model-evaluation) · [Limitations](#limitations) · [Docs](#documentation)
+[Start here](#start-here) · [Demonstration](#demonstration) · [Evidence](#engineering-evidence) · [Architecture](#architecture) · [Lifecycle](#execution-lifecycle) · [Security model](#security-model) · [Quick start](#quick-start) · [Evaluation](#real-model-evaluation) · [Limitations](#limitations) · [Docs](#documentation)
 
 </div>
 
@@ -102,11 +104,13 @@ With the denial budget raised so that every directive is attempted, all 10 out-o
 | Evidence | Result | Source |
 | --- | --- | --- |
 | Test suite | **495 tests.** In CI: 390 without Docker (job `quality`, with Ruff, `ruff format` and `mypy --strict`) and 105 Docker, end-to-end and adversarial tests (job `sandbox`, `python:3.12-slim`, cgroup v2). | [`ci.yml`](.github/workflows/ci.yml) |
+| Guarantees | Every guarantee is mapped to the code that enforces it and its regression tests; a test fails if a named function or test does not exist. | [`GUARANTEES.md`](docs/GUARANTEES.md) |
+| Lifecycle stress | About 1,050 bounded runs, idle and under CPU load: rapid exits, binary and unterminated output, 4-way concurrency, cancellation at 0.05–0.6 s, external kills of PID 1. 0 runs reported complete without valid evidence; 0 leftover containers. | [`SECURITY_REVIEW.md`](docs/SECURITY_REVIEW.md#sa-03-intermittent-runtime-attestation-failed-unresolved) |
 | Security suites | **302 pass, 0 fail, 0 skipped.** Skips are reported as skips, never as passes. | [`ADVERSARIAL_REPORT.md`](docs/ADVERSARIAL_REPORT.md) |
 | Security-review regressions | Each confirmed finding has a test written against the pre-fix code: **2 passed, 72 failed before** (the 2 passes are false-positive checks); **79 passed, 0 failed after**. | [`REGRESSION_EVIDENCE.md`](docs/security-review/REGRESSION_EVIDENCE.md) |
 | Prompt-injection containment | 10 of 10 injected out-of-policy actions denied; the model's success claim ignored; fixtures unchanged. | [`test_adversarial.py`](tests/test_adversarial.py) |
 | Output flood (`while True: write 1 MiB`) | Before any budget: 30 s, 13.9 GiB streamed, about 30 host CPU-seconds. Now: cut off inside the container at exactly the 16 MiB budget, so the host receives 16 MiB plus two marker lines, idle or under load. | [`SECURITY_REVIEW.md`](docs/SECURITY_REVIEW.md#sr-05-follow-up-output-budget-enforced-inside-the-container) |
-| Latency, five `make demo` runs | End-to-end task (including preflight and 2 sandbox runs): median 1,495 ms (min 1,409, max 1,547). One sandboxed `run_tests` (create → verify → attest → run → remove): median 692 ms (min 637, max 706). 5/5 succeeded with the fixture unchanged. | [`SECURITY_REVIEW.md`](docs/SECURITY_REVIEW.md#performance) |
+| Latency, five `make demo` runs | End-to-end task (including preflight and 2 sandbox runs): median 1,548 ms (1,474–1,643). One sandboxed `run_tests` (create → verify → attest → run → remove): median 722 ms (626–760, 10 runs). 5/5 succeeded with the fixture unchanged. Measured 2026-11-08. | [`SECURITY_REVIEW.md`](docs/SECURITY_REVIEW.md#performance) |
 | Evaluation harness | 10 tasks. **Scripted reference plans:** 10/10 pass, all clean. **Adversarial mock** (two out-of-policy attempts, then the reference plan): 7/10 pass, 0 clean, 20 attempted and 0 executed violations. Both validate the harness and its scoring; neither is a model result. | [`scripted-latest.md`](evals/results/scripted-latest.md), [`mock-adversarial-latest.md`](evals/results/mock-adversarial-latest.md) |
 | Real-model evaluation | **Not yet run.** | [Real-model evaluation](#real-model-evaluation) |
 
@@ -129,9 +133,11 @@ flowchart LR
         CTL --> TR["Tracer<br/>JSONL · redaction"]
     end
     subgraph C["Container · untrusted execution"]
-        RUN["python3 -m unittest …<br/>uid 10001 · caps dropped · no network<br/>RO rootfs · RO /workspace · noexec /tmp<br/>mem/cpu/pids/fsize limits · timeout"]
+        PID1["PID 1 · sandbox/entry.py (trusted)<br/>attest · scrub env · deadline<br/>output relay · exit report"]
+        RUN["python3 -m unittest …<br/>uid 10001 · caps dropped · no network<br/>RO rootfs · RO /workspace · noexec /tmp<br/>mem/cpu/pids/fsize limits"]
+        PID1 -->|"fork after attesting"| RUN
     end
-    SBX -->|"argv only, no shell"| RUN
+    SBX -->|"argv only, no shell"| PID1
     WS -.->|"read-only bind mount"| RUN
     PRV -.->|"HTTPS (real provider only)"| API[(LLM API)]
 ```
@@ -143,6 +149,42 @@ There are three trust boundaries:
 3. **Untrusted execution** happens only in the container, after a trusted PID 1 entrypoint (`sandbox/entry.py`) has attested the isolation controls from inside it.
 
 Components, task lifecycle, status semantics and default limits are specified in [`docs/SPEC.md`](docs/SPEC.md). The reasons behind each design choice, and what they cost, are in [`docs/DECISIONS.md`](docs/DECISIONS.md).
+
+---
+
+## Execution lifecycle
+
+Each `run_tests` call goes through the same steps, in this order:
+
+1. **Before anything is created:** if cancellation or the agent's deadline is already due, nothing is created or started (`started: false`).
+2. **Create and verify:** `docker create`, then `docker inspect` compared with the configuration (seccomp JSON, capabilities, mounts, network, user, environment, limits). Any mismatch refuses the run.
+3. **Last check, then start:** cancellation and the deadline are checked again immediately before `docker start`.
+4. **Attest:** PID 1 checks the isolation from inside and writes a nonce-tagged attestation *before* forking the test command. A failed or missing attestation refuses the run.
+5. **Run:** PID 1 relays output within the exact total budget, enforces its own deadline, and ignores signals from the workload. The host polls for exit, cancellation and the deadline.
+6. **Exit evidence:** PID 1 writes a nonce-tagged exit report as the last line. It must agree with Docker's exit code.
+7. **Classify, then remove:** the outcome is classified and the container removed with `docker rm -f`. A failed removal is reported (`cleanup: failed: …`), never hidden, and the container is left for the reaper.
+
+**Terminal states, first match wins:**
+
+| Status | When |
+| --- | --- |
+| `timeout` | The host timeout, the caller's deadline or PID 1's own deadline stopped the run |
+| `cancelled` | Cancellation was decided *before* the host saw the process exit |
+| `output_limit` | PID 1 cut the output at the budget (or the host backstop fired) |
+| `oom_killed` | Docker's OOM flag, or SIGKILL with a cgroup `oom_kill` increase |
+| — | No valid exit report: **refused** with `SandboxIsolationError` |
+| `killed` | SIGKILL without OOM evidence |
+| `completed` | Only with a valid attestation and an exit report that matches Docker |
+
+**Failure behaviour.** Anything that cannot be verified is refused, never reported as success. Refusals carry bounded, structured diagnostics: phase, container, exit code, Docker state, attestation and exit-report status, and cleanup result. The covered cases are:
+- a weakened or tampered configuration;
+- an attestation that fails or is missing;
+- a missing or inconsistent exit report;
+- PID 1 killed from outside;
+- a failed `docker start`;
+- a failed post-run inspect.
+
+Containers and workspaces left by a crashed controller are reaped on the next start. The full precedence and its tests are in [`SPEC.md`](docs/SPEC.md) §5 and [`GUARANTEES.md`](docs/GUARANTEES.md).
 
 ---
 
@@ -159,12 +201,15 @@ Components, task lifecycle, status semantics and default limits are specified in
 | Isolation silently weakened | `docker inspect` compared to config (exact seccomp JSON, security-option allowlist, exact env); runtime attestation by PID 1 | `test_sr01_runtime_attestation_catches_weak_seccomp` |
 | Resource exhaustion | Memory = swap, CPUs, PIDs, `nofile`, `RLIMIT_FSIZE`, tmpfs, timeout, total output budget enforced exactly by PID 1 (host backstop); OOM attributed from cgroup counters | `test_resource_*`, `test_sr05_*`, `test_sr13_*` |
 | Controller crash leaves containers running | PID 1 watchdog deadline; owner-tagged reaping on next start; SIGTERM unwinding | `test_sr04_*` |
+| Unverifiable or misattributed results | Container never started when cancellation or the deadline is due; an observed exit is never re-labelled; `completed` needs valid attestation and exit evidence; cleanup failures are reported, never masking the original error | `test_lifecycle_review*.py` |
 | Workload interferes with the trusted supervisor | PID 1 installs no signal handlers, so the kernel drops signals sent to it from inside the container; a missing exit report fails closed | `test_sr16_*` |
 | Cancellation or deadline ignored during a test run | Cancel event and the agent's wall-clock deadline are polled while the container runs | `test_reliability_docker.py` |
 | Secret leakage | Exact container environment; test output and exception text never traced; linear-time redaction as a backstop | `test_env_is_minimal`, `test_sr12_*` |
 | Runaway agent or model spend | Iteration, tool-call, wall-clock, denial and invalid-output budgets; per-task tool allowlists; call, token and cost budgets reserved in a ledger before each request | `test_agent.py`, `test_real_model_path.py`, `test_spend_ledger.py` |
 
-**How this was reviewed.** [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md) covers actors, assets and 27 attack paths. The Phase 2 [security review](docs/SECURITY_REVIEW.md) was carried out by Claude (an AI model) working for the repository owner, who reviewed it. It is **not an independent third-party audit**. Each item was treated as a hypothesis, probed against the running code, and given a regression test before any fix. A passing test is evidence for one property, not proof that no vulnerability remains.
+Every row above is broken down into enforcing code and regression tests in [`docs/GUARANTEES.md`](docs/GUARANTEES.md).
+
+**How this was reviewed.** [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md) covers actors, assets and 27 attack paths. The [security reviews](docs/SECURITY_REVIEW.md) (Phase 2, the PR #6 lifecycle review and the final audit) were carried out by Claude (an AI model) working for the repository owner, who reviewed them. It is **not an independent third-party audit**. Each item was treated as a hypothesis, probed against the running code, and given a regression test before any fix. A passing test is evidence for one property, not proof that no vulnerability remains.
 
 ---
 
@@ -194,6 +239,7 @@ uv run sandbox-agent serve --port 8000                          # API on 127.0.0
 | `make test-unit` / `make test-docker` | Tests without Docker / sandbox, end-to-end and adversarial tests |
 | `make adversarial-report` | Regenerate [`docs/ADVERSARIAL_REPORT.md`](docs/ADVERSARIAL_REPORT.md) |
 | `uv run sandbox-agent eval [--provider mock-adversarial] [--repeats N]` | Evaluation suite (scripted reference plans by default; the adversarial mock validates scoring) |
+| `make stress RUNS=50` | Bounded lifecycle and attestation stress against real Docker (not part of CI) |
 
 Docker-marked tests are skipped locally when the daemon or image is missing, and pytest's summary shows the skips. CI sets `SANDBOX_AGENT_REQUIRE_DOCKER=1`, which turns a missing daemon into an error.
 
@@ -258,7 +304,13 @@ Real-model runs require `--experiment-budget-usd`. Before each request, its wors
 - **Real-model behaviour is unmeasured.** No real-model evaluation has run yet.
 - **Cost bounds are estimates.** They use a conservative pre-request estimate and published prices that must be updated by hand. The ledger does not persist across GitHub Actions runs.
 - **Narrow toolset.** There is one allowlisted test runner (stdlib `unittest`). Edits can only modify existing, non-protected files, and dependencies cannot be installed.
-- **Bounded, not instant, recovery.** After a controller SIGKILL, a workload runs until `timeout + 5 s`. The stopped container and workspace remain until the next controller start.
+- **Bounded, not instant, recovery.** After a controller SIGKILL, a workload runs until `timeout + 5 s`. The stopped container and workspace remain until the next controller start. A container whose `docker rm` failed is reported (`cleanup: failed`) and stays until the reaper's deadline.
+- **Lifecycle edges.**
+  - A cancellation that arrives between the last pre-start check and PID 1 starting counts as cancellation *during* the run.
+  - A timeout that hits before PID 1 attests is refused as a sandbox error, not reported as a timeout.
+  - Cancellation and deadlines are polled (100 ms on the host, 50 ms in the container).
+- **One unexplained failure (SA-03).** A single `runtime attestation failed` was seen once and never reproduced in about 1,050 stress runs. It was refused, not counted, and the diagnostics now name the failing check if it recurs.
+- **Diagnostics hygiene (P2).** Attestation-failure diagnostics include that run's nonce. It is not exploitable (per-run, used only after the container has exited), but it is not yet masked.
 - **Local only.** The API is synchronous, single-flight, on loopback and without authentication.
 - **AppArmor and SELinux** are only checked for not being disabled, not positively verified.
 - **Two measured environments only:** the build host (bootstrapped base, cgroup v1) and GitHub Actions (`python:3.12-slim`, cgroup v2).
@@ -272,7 +324,8 @@ Real-model runs require `--experiment-budget-usd`. Before each request, its wors
 | --- | --- |
 | [`SPEC.md`](docs/SPEC.md) | Scope, components, repository layout, task lifecycle, status semantics, default limits, acceptance criteria, trace schema |
 | [`THREAT_MODEL.md`](docs/THREAT_MODEL.md) | Actors, trust boundaries, assets, 27 attack paths, residual risk |
-| [`SECURITY_REVIEW.md`](docs/SECURITY_REVIEW.md) | Phase 2 findings, fixes and residual risk |
+| [`GUARANTEES.md`](docs/GUARANTEES.md) | Each guarantee, the code that enforces it, and its regression tests |
+| [`SECURITY_REVIEW.md`](docs/SECURITY_REVIEW.md) | Phase 2 findings, the PR #6 lifecycle review (SA-01 to SA-03), the final audit, fixes and residual risk |
 | [`REGRESSION_EVIDENCE.md`](docs/security-review/REGRESSION_EVIDENCE.md) | Each regression test before and after the fixes |
 | [`ADVERSARIAL_REPORT.md`](docs/ADVERSARIAL_REPORT.md) | Generated security-suite results |
 | [`DECISIONS.md`](docs/DECISIONS.md) | Engineering decisions D1–D22 and their costs |
