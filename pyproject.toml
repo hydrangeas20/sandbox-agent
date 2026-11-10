@@ -4,7 +4,6 @@ version = "0.1.0"
 description = "Security-conscious AI coding agent that runs untrusted coding tasks inside an isolated Docker sandbox."
 readme = "README.md"
 requires-python = ">=3.11"
-license = { text = "MIT" }
 authors = [{ name = "hydrangeas20", email = "hamda@duck.com" }]
 dependencies = [
     "fastapi>=0.115,<1",
